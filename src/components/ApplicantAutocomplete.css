@@ -1,0 +1,121 @@
+.autocomplete-container {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  flex: 1;
+}
+
+.autocomplete-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e9ecef;
+  border-radius: 8px 0 0 8px;
+  font-size: 1rem;
+  background: white;
+  color: #333;
+  transition: border-color 0.3s ease;
+  box-sizing: border-box;
+}
+
+.autocomplete-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.autocomplete-input::placeholder {
+  color: #999;
+}
+
+.autocomplete-input:disabled {
+  background: #f8f9fa;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.autocomplete-loading {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 2px solid #e9ecef;
+  border-top: none;
+  border-radius: 0 0 0 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  color: #666;
+  text-align: center;
+  z-index: 1000;
+  box-sizing: border-box;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 2px solid #e9ecef;
+  border-top: none;
+  border-radius: 0 0 0 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
+}
+
+.autocomplete-option {
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #f8f9fa;
+}
+
+.autocomplete-option:hover {
+  background: #f8f9fa;
+}
+
+.autocomplete-option:last-child {
+  border-bottom: none;
+}
+
+.autocomplete-no-results {
+  padding: 0.75rem 1rem;
+  color: #666;
+  font-style: italic;
+  text-align: center;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.add-new-option {
+  color: #667eea;
+  font-weight: 600;
+  text-align: center;
+  background: #f8f9ff;
+}
+
+.add-new-option:hover {
+  background: #eef0ff;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .autocomplete-container {
+    max-width: 100%;
+  }
+  
+  .autocomplete-dropdown {
+    max-height: 150px;
+  }
+  
+  .autocomplete-option {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.9rem;
+  }
+  
+  .autocomplete-input {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+}
