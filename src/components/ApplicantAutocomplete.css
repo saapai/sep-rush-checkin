@@ -55,7 +55,9 @@
   top: 100%;
   left: 0;
   right: 0;
-  background: white;
+  background: white !important;
+  color: #222 !important;
+  color-scheme: light !important;
   border: 1.5px solid #e2e2e2;
   border-top: none;
   border-radius: 0 0 10px 10px;
@@ -69,7 +71,7 @@
 .autocomplete-option {
   padding: 0.65rem 1rem;
   cursor: pointer;
-  color: #222;
+  color: #222 !important;
   font-size: 0.93rem;
   transition: background-color 0.15s ease;
   border-bottom: 1px solid #f3f3f3;
@@ -85,7 +87,7 @@
 
 .autocomplete-no-results {
   padding: 0.6rem 1rem;
-  color: #999;
+  color: #999 !important;
   font-size: 0.85rem;
   text-align: center;
 }
