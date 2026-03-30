@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Airtable from 'airtable';
+import './ApplicantAutocomplete.css';
 
 interface Applicant {
   id: string;
@@ -177,7 +178,7 @@ const ApplicantAutocomplete: React.FC<ApplicantAutocompleteProps> = ({
   };
 
   return (
-    <div style={{ position: 'relative', width: '100%' }}>
+    <div className="autocomplete-container" style={{ position: 'relative', width: '100%' }}>
       <input
         ref={inputRef}
         type="text"
