@@ -20,24 +20,6 @@ const supabase = createClient(
 
 const TABLE = "Rush Spring '26";
 
-const MEMBERS = [
-  'Allie Young', 'Eden Tan', 'Lindsey Lee', 'Giancarlo Novelli', 'Jayson Tian',
-  'Sidney Muntean', 'Abby Kearny', 'Anish Thalamati', 'Anusha Chatterjee',
-  'Franco Cachay', 'Quinn Kiefer', 'Kareena Gupta-Martinez', 'Sofia Barajas',
-  'Theo Luu', 'Valerie Fan', 'Ash Barett', 'Arushi Gupta', 'Mahi Ghia',
-  'Sophie Liu', 'Anirudh Chatterjee', 'Annika Danne', 'Charlotte Chiang',
-  'Cheryl Wu', 'Huixi Lee', 'Leilani Pradis', 'Edward Ke', 'Ming Lo',
-  'Layla AlGhamdi', 'Brandon Bao', 'Dilnar Yu', 'Jonathan Gossaye', 'Elise Wu',
-  'Samantha Waugh', 'Natalie Tan', 'Yashas Shashidara', 'Amanda Lee',
-  'Aryan Dutta Baruah', 'Saathvik Pai', 'Kit He', 'Rahul Nanda', 'Ved Vedere',
-  'Sonali Vaid', 'Barima Adusei-Poku', 'Ruhaan Mahindru', 'Fiona Macleitch',
-  'Kera Chang', 'Sharan Subramanian', 'Kevin He', 'Armaan Bassi', 'Joanna Bui',
-  'Beck Peterson', 'Elijah Bautista', 'Joseph Wang', 'Gary Li', 'Anannya Shah',
-  'Anirudh Kishore', 'Darren Le', 'Evan Rose', 'Harrison Nguyen',
-  'Henry Mcnamara', 'Maddie Kuan', 'Matthew Hun', 'Sophia Bao', 'Tyler Kastenholz',
-];
-
-const MEMBER_APPLICANTS = MEMBERS.map(name => ({ id: `member-${name}`, name }));
 
 const getCurrDay = (): string => {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
@@ -245,12 +227,6 @@ const Photo: React.FC<PhotoProps> = ({ navigate }) => {
   };
 
   const handleApplicantSelect = async (applicant: { id: string; name: string }) => {
-    // If a member is selected, navigate to dashboard
-    if (applicant.id.startsWith('member-')) {
-      if (navigate) navigate('/dashboard');
-      return;
-    }
-
     setRusheeName(applicant.name);
     try {
       const records = await base(TABLE).select({
@@ -290,6 +266,7 @@ const Photo: React.FC<PhotoProps> = ({ navigate }) => {
       <div className="photo-container">
         <div className="photo-nav">
           <span className="day-badge">Day {dayNum}</span>
+          <button className="nav-dashboard-btn" onClick={() => navigate && navigate('/dashboard')}>Dashboard</button>
         </div>
 
         <h1 className="photo-title">Rush Check-In</h1>
@@ -305,7 +282,6 @@ const Photo: React.FC<PhotoProps> = ({ navigate }) => {
                 onAddNew={(name) => setRusheeName(name)}
                 placeholder="Search or add new..."
                 disabled={isCheckingApplicant}
-                extraApplicants={MEMBER_APPLICANTS}
               />
             </div>
 

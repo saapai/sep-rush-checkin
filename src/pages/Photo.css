@@ -28,15 +28,23 @@
   letter-spacing: 0.5px;
 }
 
-.nav-link-small {
-  color: #888;
-  text-decoration: none;
-  font-size: 0.85rem;
+.nav-dashboard-btn {
+  background: none;
+  border: 1px solid #ddd;
+  color: #555;
+  padding: 0.35rem 0.9rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
   font-weight: 500;
-  transition: color 0.2s;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-.nav-link-small:hover { color: #333; }
+.nav-dashboard-btn:hover {
+  background: #111;
+  color: white;
+  border-color: #111;
+}
 
 .photo-title {
   font-size: 2rem;
