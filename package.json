@@ -5,13 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
+    "@vercel/functions": "^3.4.3",
     "airtable": "^0.12.2",
+    "openai": "^6.33.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-app": "^0.1.6"

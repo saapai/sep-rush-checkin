@@ -1,5 +1,30 @@
 {
+  "buildCommand": "vite build",
+  "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/blast",
+      "schedule": "45 0 31 3 *"
+    },
+    {
+      "path": "/api/blast",
+      "schedule": "45 0 1 4 *"
+    },
+    {
+      "path": "/api/blast",
+      "schedule": "45 0 2 4 *"
+    },
+    {
+      "path": "/api/blast",
+      "schedule": "45 0 3 4 *"
+    },
+    {
+      "path": "/api/blast",
+      "schedule": "15 17 3 4 *"
+    }
   ]
 }

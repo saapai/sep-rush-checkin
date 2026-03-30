@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Photo from '../pages/Photo';
 import Dashboard from '../pages/Dashboard';
+import ApplicantDetail from '../pages/ApplicantDetail';
 
 const AppRouter: React.FC = () => {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
@@ -21,16 +22,18 @@ const AppRouter: React.FC = () => {
 
   const renderPage = () => {
     if (currentPath === '/dashboard') {
-      return <Dashboard />;
+      return <Dashboard navigate={navigate} />;
     }
+
+    const applicantMatch = currentPath.match(/^\/applicant\/(.+)$/);
+    if (applicantMatch) {
+      return <ApplicantDetail applicantId={applicantMatch[1]} navigate={navigate} />;
+    }
+
     return <Photo navigate={navigate} />;
   };
 
-  return (
-    <>
-      {renderPage()}
-    </>
-  );
+  return <>{renderPage()}</>;
 };
 
 export default AppRouter;
