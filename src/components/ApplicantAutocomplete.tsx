@@ -14,6 +14,7 @@ interface ApplicantAutocompleteProps {
   onAddNew?: (name: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  extraApplicants?: Applicant[];
 }
 
 const ApplicantAutocomplete: React.FC<ApplicantAutocompleteProps> = ({
@@ -22,27 +23,25 @@ const ApplicantAutocomplete: React.FC<ApplicantAutocompleteProps> = ({
   onSelect,
   onAddNew,
   placeholder = "Enter applicant name",
-  disabled = false
+  disabled = false,
+  extraApplicants = []
 }) => {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
-  const [filteredApplicants, setFilteredApplicants] = useState<Applicant[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Airtable configuration
   const base = new Airtable({
     apiKey: import.meta.env.VITE_AIRTABLE_API_KEY
   }).base(import.meta.env.VITE_AIRTABLE_BASE_ID);
 
-  // Fetch applicants from Airtable
   const fetchApplicants = async () => {
     try {
       setLoading(true);
       const records = await base("Rush Spring '26").select({
         fields: ['applicant_name'],
-        maxRecords: 1000 // Adjust based on your needs
+        maxRecords: 1000
       }).all();
 
       const applicantList = records
@@ -61,44 +60,35 @@ const ApplicantAutocomplete: React.FC<ApplicantAutocompleteProps> = ({
     }
   };
 
-  // Filter applicants based on input
-  const filterApplicants = (inputValue: string) => {
-    if (!inputValue.trim()) {
-      setFilteredApplicants([]);
-      return;
-    }
-
-    const filtered = applicants.filter(applicant =>
-      applicant.name.toLowerCase().includes(inputValue.toLowerCase())
-    );
-    setFilteredApplicants(filtered);
+  // Merge Airtable + extra applicants, deduplicated
+  const getAllApplicants = (): Applicant[] => {
+    const airtableNames = new Set(applicants.map(a => a.name.toLowerCase()));
+    const extras = extraApplicants.filter(a => !airtableNames.has(a.name.toLowerCase()));
+    return [...applicants, ...extras].sort((a, b) => a.name.localeCompare(b.name));
   };
 
-  // Handle input change
+  const getFiltered = (): Applicant[] => {
+    const all = getAllApplicants();
+    if (!value.trim()) return all;
+    const query = value.toLowerCase();
+    return all.filter(a => a.name.toLowerCase().includes(query));
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const inputValue = e.target.value;
-    onChange(inputValue);
-    filterApplicants(inputValue);
-    setShowDropdown(inputValue.length > 0);
+    onChange(e.target.value);
+    setShowDropdown(true);
   };
 
-  // Handle applicant selection
   const handleApplicantSelect = (applicant: Applicant) => {
     onChange(applicant.name);
     onSelect(applicant);
     setShowDropdown(false);
-    setFilteredApplicants([]);
   };
 
-  // Handle input focus
   const handleInputFocus = () => {
-    if (value.length > 0) {
-      filterApplicants(value);
-      setShowDropdown(true);
-    }
+    setShowDropdown(true);
   };
 
-  // Handle click outside to close dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -110,15 +100,17 @@ const ApplicantAutocomplete: React.FC<ApplicantAutocompleteProps> = ({
         setShowDropdown(false);
       }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch applicants on component mount
   useEffect(() => {
     fetchApplicants();
   }, []);
+
+  const filtered = getFiltered();
+  const hasQuery = value.trim().length > 0;
+  const exactMatch = hasQuery && filtered.some(a => a.name.toLowerCase() === value.trim().toLowerCase());
 
   return (
     <div className="autocomplete-container">
@@ -133,16 +125,36 @@ const ApplicantAutocomplete: React.FC<ApplicantAutocompleteProps> = ({
         className="autocomplete-input"
         autoComplete="off"
       />
-      
+
       {loading && (
         <div className="autocomplete-loading">
           Loading applicants...
         </div>
       )}
 
-      {showDropdown && filteredApplicants.length > 0 && (
+      {showDropdown && !loading && (
         <div ref={dropdownRef} className="autocomplete-dropdown">
-          {filteredApplicants.map((applicant) => (
+          {filtered.length === 0 && hasQuery && (
+            <>
+              {onAddNew && (
+                <div
+                  className="autocomplete-option add-new-option"
+                  onClick={() => {
+                    onAddNew(value);
+                    setShowDropdown(false);
+                  }}
+                >
+                  <span className="add-new-icon">+</span>
+                  <span>Add "<strong>{value}</strong>"</span>
+                </div>
+              )}
+              <div className="autocomplete-no-results">
+                No matching applicants
+              </div>
+            </>
+          )}
+
+          {filtered.map((applicant) => (
             <div
               key={applicant.id}
               className="autocomplete-option"
@@ -151,15 +163,8 @@ const ApplicantAutocomplete: React.FC<ApplicantAutocompleteProps> = ({
               {applicant.name}
             </div>
           ))}
-        </div>
-      )}
 
-      {showDropdown && filteredApplicants.length === 0 && value.length > 0 && !loading && (
-        <div ref={dropdownRef} className="autocomplete-dropdown">
-          <div className="autocomplete-no-results">
-            No applicants found
-          </div>
-          {onAddNew && (
+          {filtered.length > 0 && hasQuery && !exactMatch && onAddNew && (
             <div
               className="autocomplete-option add-new-option"
               onClick={() => {
@@ -167,7 +172,8 @@ const ApplicantAutocomplete: React.FC<ApplicantAutocompleteProps> = ({
                 setShowDropdown(false);
               }}
             >
-              + Add New Applicant: "{value}"
+              <span className="add-new-icon">+</span>
+              <span>Add "<strong>{value}</strong>"</span>
             </div>
           )}
         </div>
