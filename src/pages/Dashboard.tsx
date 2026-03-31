@@ -185,7 +185,12 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
       <div className="dash-header">
         <div className="dash-header-top">
           <h1 className="dash-title">Rush Dashboard</h1>
-          <a href="/" className="dash-nav-link">Check-In</a>
+          <div className="dash-header-actions">
+            <a href="/" className="dash-nav-link">Check-In</a>
+            <button className="dash-logout" onClick={() => { sessionStorage.removeItem('dash_auth'); setAuthenticated(false); setPassword(''); }}>
+              Logout
+            </button>
+          </div>
         </div>
         <div className="dash-stats">
           {[
