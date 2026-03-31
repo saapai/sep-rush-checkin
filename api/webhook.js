@@ -534,6 +534,13 @@ FORMATTING RULES (CRITICAL):
 - NEVER use markdown formatting. No asterisks, no bold, no italic, no headers, no backticks. Plain text only — this is iMessage.
 - NEVER end messages with filler like "let me know if you need anything else!" or "anything else you need?" — just end naturally.
 - Use dashes (-) for lists, never asterisks or bullets.
+- Keep replies clean, elegant, and well-spaced. Use line breaks to separate distinct thoughts — don't wall-of-text.
+- Your tone should feel like a polished, sharp friend — not a corporate chatbot. Think Apple-level minimalism in your texts.
+
+RESPONSE LENGTH:
+- Your ENTIRE reply must fit in ONE message. Never structure your response expecting multiple messages to be sent.
+- Keep it tight. 1-4 lines for simple answers. Max 8-10 lines for complex ones.
+- If confirming something routine (notes saved, scores logged), keep it to 1-2 lines — the system adds the details automatically.
 
 FIRST MESSAGE BEHAVIOR:
 - If there is NO conversation history (first time texting), introduce yourself and give today's rush info.
@@ -555,18 +562,21 @@ CRITICAL TAG RULES:
 - NEVER repeat the notes content in your visible text — the user already knows what they wrote.
 - Always use the FULL NAME of the applicant in all tags, exactly as it appears in the applicant list.
 
-1. SAVING NOTES: When a member shares feedback about rushees, wrap EACH person's notes in tags. CRITICAL: Generate a tag for EVERY SINGLE person mentioned — do NOT skip anyone. Use EXACTLY this format:
+1. SAVING NOTES: When a member shares feedback about rushees, IMMEDIATELY save — NEVER ask "do you want me to save?" or "should I save these?". Just do it. Wrap EACH person's notes in tags. CRITICAL: Generate a tag for EVERY SINGLE person mentioned — do NOT skip anyone. Use EXACTLY this format:
    [SAVE_NOTES:Firstname Lastname]notes here[/SAVE_NOTES]
    Multiple people: [SAVE_NOTES:Firstname Lastname]notes[/SAVE_NOTES][SAVE_NOTES:Another Person]notes[/SAVE_NOTES]
    IMPORTANT: Use [SAVE_NOTES:] with the underscore and bracket-style closing tags. NOT colon-separated.
    IMPORTANT: Always use the FULL NAME from the applicant list below. Match first names to the list — e.g. if user writes "Kevin H" and there's "Kevin Henderson" in the list, use "Kevin Henderson".
-   IMPORTANT: If the user sends notes about 10+ people, you MUST generate tags for ALL of them. Do NOT stop partway.
+   IMPORTANT: If the user sends notes about 10+ people, you MUST generate tags for ALL of them. Do NOT stop partway. Even 30+ people — tag EVERY single one.
+   IMPORTANT: If the user includes scores inline with notes (like "S 3 P 2" or "S 4 P 3" after each person), generate BOTH [SAVE_NOTES] AND [SAVE_SCORES] tags for each person in the same reply.
+   IMPORTANT: If the user uses a last initial like "Sofia L" or "Ethan D" to disambiguate, match it to the right person from the applicant list.
    After all tags, just write "got it" or similar — the system auto-generates a pretty confirmation with all names and rating prompts. Do NOT write your own confirmation or list names.
 
 2. ASKING FOR RATINGS: The system auto-generates rating prompts after notes are saved. You do NOT need to ask for ratings — it's handled automatically. Just put the tags and a short "got it" or similar.
 
 3. SAVING SCORES: When the user gives ratings, put ALL score tags first, then just say "locked in":
    [SAVE_SCORES:Firstname Lastname:4:3][SAVE_SCORES:Another Person:5:4]locked in
+   Decimal scores are supported: [SAVE_SCORES:Name:2.5:1.5]
    The system auto-appends the real elo tally from Airtable. Do NOT write your own tally.
    Scores are tracked per-member. If they re-rate someone, their old score is replaced (not stacked).
 
@@ -636,7 +646,8 @@ Day 6 — Final Deliberations (4/4): 10:00 AM - 6:00 PM, SAC, Dress to impress (
 
 CHECK-IN SYSTEM & TOOLS:
 - Rush Check-In Page: https://sep-ats.vercel.app/
-- Rush Dashboard: https://sep-ats.vercel.app/dashboard
+- Rush Dashboard: https://sep-ats.vercel.app/dashboard — password: quinnanish
+- When anyone asks about the dashboard, ALWAYS include the password. The link is useless without it.
 - Airtable (full data): https://airtable.com/invite/l?inviteId=invgz3AQC2Y0QrVyo&inviteToken=539996ea83e3725cfecdce431877eb34316ef68a2fd79bf96cd4be166fcb9fb8
 - The check-in app auto-detects rush day with 4 AM PT cutoff.
 - Rejected rushees blocked from check-in. "Not Applied" blocked starting Day 3.
@@ -778,7 +789,6 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
-      max_tokens: 4096,
       temperature: 0.7,
     });
 
@@ -794,7 +804,7 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
 
     // Extract notes from ALL tag formats GPT has ever produced
     const allNotesMatches = extractAllNoteTags(reply);
-    const allScoresMatches = [...reply.matchAll(/\[SAVE_?SCORES:(.+?):(\d):(\d)\]/gi)];
+    const allScoresMatches = [...reply.matchAll(/\[SAVE_?SCORES:(.+?):(\d+\.?\d*):(\d+\.?\d*)\]/gi)];
     const allEditNotesMatches = [...reply.matchAll(/\[EDIT_MY_NOTES:(.+?)\]([\s\S]*?)\[\/EDIT_MY_NOTES\]/gi)];
     const allDeleteNotesMatches = [...reply.matchAll(/\[DELETE_MY_NOTES:(.+?)\]/gi)];
     const allDeleteScoresMatches = [...reply.matchAll(/\[DELETE_MY_SCORES:(.+?)\]/gi)];
@@ -856,16 +866,16 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
       }
     }
 
-    // Build pretty confirmation for saved notes (overrides GPT reply)
+    // Build elegant confirmation for saved notes (overrides GPT reply)
     if (savedNotes.length > 0) {
       const firstNames = savedNotes.map(n => n.split(' ')[0].toLowerCase());
-      let prettyReply = `notes locked in for ${savedNotes.length} rushee${savedNotes.length > 1 ? 's' : ''}:\n`;
+      let prettyReply = `locked in ${savedNotes.length} ${savedNotes.length > 1 ? 'rushees' : 'rushee'}\n\n`;
       savedNotes.forEach(name => {
-        prettyReply += `- ${name}\n`;
+        prettyReply += `${name}\n`;
       });
-      prettyReply += `\nrate em 1-5 (1=red flag, 5=amazing)\nsocial: ${firstNames.join(', ')}\nprof: ${firstNames.join(', ')}`;
+      prettyReply += `\nnow rate em 1-5 (1 = red flag, 5 = amazing)\nsocial: ${firstNames.join(', ')}\nprof: ${firstNames.join(', ')}`;
       if (failedNotes.length > 0) {
-        prettyReply += `\n\ncouldn't find: ${failedNotes.join(', ')} — double check the names?`;
+        prettyReply += `\n\ncouldn't match: ${failedNotes.join(', ')}`;
       }
       reply = prettyReply;
     }
@@ -874,8 +884,8 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
     const scoreResults = [];
     for (const scoresMatch of allScoresMatches) {
       const scoreName = scoresMatch[1].trim();
-      const socialScore = parseInt(scoresMatch[2]);
-      const profScore = parseInt(scoresMatch[3]);
+      const socialScore = parseFloat(scoresMatch[2]);
+      const profScore = parseFloat(scoresMatch[3]);
       const matches = fuzzyMatch(applicants, scoreName);
       if (matches.length === 1 && socialScore >= 1 && socialScore <= 5 && profScore >= 1 && profScore <= 5) {
         try {
@@ -994,37 +1004,34 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
       clarifyMatch[1].split('|').map(n => n.trim()).forEach(n => allClarifyNames.push(n));
     }
 
-    // Send reply — only send clarify photos for lookups, max 3
-    if (allClarifyNames.length > 0) {
-      await sendReply(sender, reply);
-      const photosToSend = allClarifyNames.slice(0, 3);
-      for (const name of photosToSend) {
-        const match = applicants.find(a => a.name.toLowerCase() === name.toLowerCase())
-          || applicants.find(a => a.name.toLowerCase().includes(name.toLowerCase()));
-        if (match && match.photoUrl) {
-          await sendReply(sender, match.name, match.photoUrl);
-        }
-      }
-    } else {
-      let photoUrl = null;
-      if (photoMatch) {
-        const photoName = photoMatch[1].trim().toLowerCase();
-        const match = applicants.find(a => a.name.toLowerCase() === photoName)
-          || applicants.find(a => a.name.toLowerCase().includes(photoName))
-          || applicants.find(a => photoName.includes(a.name.toLowerCase()));
-        if (match && match.photoUrl) {
-          photoUrl = match.photoUrl;
-        } else {
-          console.log(`[PHOTO] tag "${photoMatch[1]}" — no photo found`);
-        }
-      }
+    // --- SEND AT MOST 2 MESSAGES per inbound (reply + optional photo/contact) ---
+    let photoUrl = null;
 
-      // No auto-attach — photos only sent when GPT explicitly uses [PHOTO:] tag (i.e. user asked for a lookup)
-
-      await sendReply(sender, reply, photoUrl || undefined);
+    // Resolve photo URL from [PHOTO:] tag or first clarify name
+    if (photoMatch) {
+      const photoName = photoMatch[1].trim().toLowerCase();
+      const match = applicants.find(a => a.name.toLowerCase() === photoName)
+        || applicants.find(a => a.name.toLowerCase().includes(photoName))
+        || applicants.find(a => photoName.includes(a.name.toLowerCase()));
+      if (match && match.photoUrl) {
+        photoUrl = match.photoUrl;
+      } else {
+        console.log(`[PHOTO] tag "${photoMatch[1]}" — no photo found`);
+      }
+    } else if (allClarifyNames.length > 0 && isLookup) {
+      // For disambiguation, send first match's photo inline with the reply (not separate messages)
+      const firstName = allClarifyNames[0];
+      const match = applicants.find(a => a.name.toLowerCase() === firstName.toLowerCase())
+        || applicants.find(a => a.name.toLowerCase().includes(firstName.toLowerCase()));
+      if (match && match.photoUrl) {
+        photoUrl = match.photoUrl;
+      }
     }
 
-    // Contact card ONLY on true first message
+    // Message 1: the reply (with photo attached if applicable)
+    await sendReply(sender, reply, photoUrl || undefined);
+
+    // Message 2 (max): contact card ONLY on true first message
     if (isFirstMessage) {
       console.log('First message — sending contact card');
       await sendReply(sender, "save my contact so you don't lose me", "https://sep-ats.vercel.app/friday.vcf");
