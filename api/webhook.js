@@ -605,6 +605,61 @@ Values/Motivation: what inspires you, green flags in friends, ideal weekend, TED
 Entrepreneurship: what attracts you, how do you demonstrate it, company you're inspired by
 Fun: favorite Halloween costume, hot take, Spotify playlist, tell me about your summer`;
 
+// --- Extract notes from ALL tag formats GPT may produce ---
+function extractAllNoteTags(text) {
+  const results = [];
+  const seen = new Set();
+
+  // Format 1: [SAVE_NOTES:Name]content[/SAVE_NOTES] — proper bracket with closing tag
+  for (const m of text.matchAll(/\[SAVE_?NOTES:(.+?)\]([\s\S]*?)\[\/SAVE_?NOTES\]/gi)) {
+    const name = m[1].trim();
+    const notes = m[2].trim();
+    if (name && notes && !seen.has(name.toLowerCase())) {
+      seen.add(name.toLowerCase());
+      results.push([m[0], name, notes]); // [fullMatch, name, content]
+    }
+  }
+
+  // Format 2: [SAVENOTES:Name:content] — colon-separated, no closing tag
+  for (const m of text.matchAll(/\[SAVE_?NOTES:([^:\]]+):([^\]]+)\]/gi)) {
+    const name = m[1].trim();
+    const notes = m[2].trim();
+    if (name && notes && !seen.has(name.toLowerCase())) {
+      seen.add(name.toLowerCase());
+      results.push([m[0], name, notes]);
+    }
+  }
+
+  // Format 3: [SAVENOTES:Name]content (NO closing tag — runs to next [SAVE tag or end)
+  const tagPattern = /\[SAVE_?NOTES:([^\]]+)\]/gi;
+  const positions = [];
+  let match;
+  while ((match = tagPattern.exec(text)) !== null) {
+    positions.push({ name: match[1].trim(), start: match.index, contentStart: match.index + match[0].length, fullTag: match[0] });
+  }
+
+  for (let i = 0; i < positions.length; i++) {
+    const tag = positions[i];
+    if (tag.name.includes(':')) continue; // colon format already handled
+    if (seen.has(tag.name.toLowerCase())) continue; // already captured by format 1 or 2
+
+    // Content runs to next [SAVE tag or end of text
+    const contentEnd = i + 1 < positions.length ? positions[i + 1].start : text.length;
+    let noteContent = text.substring(tag.contentStart, contentEnd).trim();
+    // Remove closing tags and trailing confirmations
+    noteContent = noteContent.replace(/\[\/SAVE_?NOTES\]/gi, '').trim();
+    noteContent = noteContent.replace(/\s*(got it|notes saved|rate |social:|prof:|how'?s|speaking of|by the way|still need|locked in).*/is, '').trim();
+    noteContent = noteContent.replace(/\.\s*$/, '').trim();
+
+    if (noteContent && noteContent.length > 3) {
+      seen.add(tag.name.toLowerCase());
+      results.push([tag.fullTag + noteContent, tag.name, noteContent]);
+    }
+  }
+
+  return results;
+}
+
 // --- Handler ---
 
 async function processMessage({ content, sender, message_handle }) {
@@ -654,19 +709,11 @@ ${buildApplicantSummary(applicants)}`;
     let reply = completion.choices[0]?.message?.content || "hmm something went wrong, try again?";
     console.log(`GPT raw: ${reply.substring(0, 300)}`);
 
-    // --- Parse ALL tags (handle both [SAVE_NOTES:] and [SAVENOTES:] formats) ---
+    // --- Parse ALL tags (handle ALL GPT output formats) ---
     const reactMatch = reply.match(/^\[REACT:(love|like|dislike|laugh|emphasize|question)\]\s*/i);
-    // Format 1: [SAVE_NOTES:Name]content[/SAVE_NOTES] or [SAVENOTES:Name]content[/SAVENOTES]
-    const bracketNotesMatches = [...reply.matchAll(/\[SAVE_?NOTES:(.+?)\]([\s\S]*?)\[\/SAVE_?NOTES\]/gi)];
-    // Format 2: [SAVENOTES:Name:content] (colon-separated, no closing tag)
-    const colonNotesMatches = [...reply.matchAll(/\[SAVE_?NOTES:([^:\]]+):([^\]]+)\]/gi)];
-    // Merge both formats, avoiding duplicates
-    const allNotesMatches = [...bracketNotesMatches];
-    for (const m of colonNotesMatches) {
-      const name = m[1].trim();
-      const isDupe = allNotesMatches.some(existing => existing[1].trim().toLowerCase() === name.toLowerCase());
-      if (!isDupe) allNotesMatches.push(m);
-    }
+
+    // Extract notes from ALL tag formats GPT has ever produced
+    const allNotesMatches = extractAllNoteTags(reply);
     const allScoresMatches = [...reply.matchAll(/\[SAVE_?SCORES:(.+?):(\d):(\d)\]/gi)];
     const allEditNotesMatches = [...reply.matchAll(/\[EDIT_MY_NOTES:(.+?)\]([\s\S]*?)\[\/EDIT_MY_NOTES\]/gi)];
     const allDeleteNotesMatches = [...reply.matchAll(/\[DELETE_MY_NOTES:(.+?)\]/gi)];
@@ -676,13 +723,14 @@ ${buildApplicantSummary(applicants)}`;
 
     console.log(`Tags: notes=${allNotesMatches.length} scores=${allScoresMatches.length} editNotes=${allEditNotesMatches.length} delNotes=${allDeleteNotesMatches.length} photo=${!!photoMatch} clarify=${!!clarifyMatch}`);
 
-    // Strip all tags from reply (handle all format variants)
+    // Strip ALL tags from reply — if notes were saved, reply gets overwritten anyway
     if (reactMatch) reply = reply.replace(reactMatch[0], '').trim();
-    // Strip bracket-style notes: [SAVE_NOTES:Name]content[/SAVE_NOTES] and [SAVENOTES:Name]content[/SAVENOTES]
+    // Strip bracket-closed notes: [SAVE_NOTES:Name]content[/SAVE_NOTES]
     reply = reply.replace(/\[SAVE_?NOTES:(.+?)\]([\s\S]*?)\[\/SAVE_?NOTES\]/gi, '').trim();
-    // Strip colon-style notes: [SAVENOTES:Name:content] and [SAVE_NOTES:Name:content]
+    // Strip closing tags, then opening tags (handles unclosed bracket format)
+    reply = reply.replace(/\[\/SAVE_?NOTES\]/gi, '').trim();
     reply = reply.replace(/\[SAVE_?NOTES:[^\]]+\]/gi, '').trim();
-    // Strip score tags (both formats)
+    // Strip score tags
     reply = reply.replace(/\[SAVE_?SCORES:[^\]]+\]/gi, '').trim();
     for (const m of allEditNotesMatches) reply = reply.replace(m[0], '').trim();
     for (const m of allDeleteNotesMatches) reply = reply.replace(m[0], '').trim();
