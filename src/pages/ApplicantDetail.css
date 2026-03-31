@@ -238,7 +238,50 @@
   margin-top: 0.25rem;
 }
 
+.scores-blurred {
+  filter: blur(12px);
+  cursor: pointer;
+  user-select: none;
+  transition: filter 0.3s ease;
+}
+
+.scores-grid:not(.scores-blurred) {
+  transition: filter 0.3s ease;
+}
+
+.scores-hint {
+  text-align: center;
+  font-size: 0.75rem;
+  color: #bbb;
+  margin: 0.5rem 0 0;
+  font-weight: 500;
+}
+
 /* Notes */
+.notes-summary {
+  background: #f0f4ff;
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.notes-summary-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #6366f1;
+  margin-bottom: 0.35rem;
+}
+
+.notes-summary-text {
+  font-size: 0.88rem;
+  color: #333;
+  line-height: 1.5;
+  margin: 0;
+}
+
 .notes-header {
   display: flex;
   justify-content: space-between;

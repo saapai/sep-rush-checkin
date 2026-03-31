@@ -8,6 +8,7 @@ const base = new Airtable({
 
 const TABLE = "Rush Spring '26";
 const PASSCODE = 'quinnanish';
+const ADMIN_PASSCODE = 'quinnanishadmin';
 
 interface Applicant {
   id: string;
@@ -38,13 +39,19 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name-asc');
 
+  const isAdmin = sessionStorage.getItem('dash_auth') === 'admin';
+
   useEffect(() => {
-    if (sessionStorage.getItem('dash_auth') === '1') setAuthenticated(true);
+    const auth = sessionStorage.getItem('dash_auth');
+    if (auth === '1' || auth === 'admin') setAuthenticated(true);
   }, []);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === PASSCODE) {
+    if (password === ADMIN_PASSCODE) {
+      setAuthenticated(true);
+      sessionStorage.setItem('dash_auth', 'admin');
+    } else if (password === PASSCODE) {
       setAuthenticated(true);
       sessionStorage.setItem('dash_auth', '1');
     } else {
@@ -181,8 +188,8 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
           <option value="name-desc">Name Z-A</option>
           <option value="year-asc">Year (Oldest)</option>
           <option value="year-desc">Year (Newest)</option>
-          <option value="elo-desc">Elo (Highest)</option>
-          <option value="elo-asc">Elo (Lowest)</option>
+          {isAdmin && <option value="elo-desc">Elo (Highest)</option>}
+          {isAdmin && <option value="elo-asc">Elo (Lowest)</option>}
         </select>
         <button className="dash-refresh" onClick={fetchApplicants}>Refresh</button>
       </div>

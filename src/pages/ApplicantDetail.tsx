@@ -8,6 +8,7 @@ const base = new Airtable({
 
 const TABLE = "Rush Spring '26";
 const PASSCODE = 'quinnanish';
+const ADMIN_PASSCODE = 'quinnanishadmin';
 
 interface Applicant {
   id: string;
@@ -17,6 +18,7 @@ interface Applicant {
   photo: string;
   status: string;
   notes: string;
+  notesSummary: string;
   day_1: boolean;
   day_2: boolean;
   day_3: boolean;
@@ -42,14 +44,21 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
+  const [scoresRevealed, setScoresRevealed] = useState(false);
+
+  const isAdmin = sessionStorage.getItem('dash_auth') === 'admin';
 
   useEffect(() => {
-    if (sessionStorage.getItem('dash_auth') === '1') setAuthenticated(true);
+    const auth = sessionStorage.getItem('dash_auth');
+    if (auth === '1' || auth === 'admin') setAuthenticated(true);
   }, []);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === PASSCODE) {
+    if (password === ADMIN_PASSCODE) {
+      setAuthenticated(true);
+      sessionStorage.setItem('dash_auth', 'admin');
+    } else if (password === PASSCODE) {
       setAuthenticated(true);
       sessionStorage.setItem('dash_auth', '1');
     } else {
@@ -72,6 +81,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
           photo: (record.get('photo') as string) || '',
           status: (record.get('status') as string) || '',
           notes: (record.get('notes') as string) || '',
+          notesSummary: (record.get('notes_summary') as string) || '',
           day_1: !!record.get('day_1'),
           day_2: !!record.get('day_2'),
           day_3: !!record.get('day_3'),
@@ -217,18 +227,24 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
             </div>
           </div>
 
-          {/* Scores */}
-          <div className="profile-card">
-            <h2 className="card-title">Scores</h2>
-            <div className="scores-grid">
-              {scores.map(s => (
-                <div key={s.label} className="score-card">
-                  <div className="score-number">{s.value || '—'}</div>
-                  <div className="score-name">{s.label}</div>
-                </div>
-              ))}
+          {/* Scores — admin only */}
+          {isAdmin && (
+            <div className="profile-card">
+              <h2 className="card-title">Scores</h2>
+              <div
+                className={`scores-grid ${!scoresRevealed ? 'scores-blurred' : ''}`}
+                onClick={() => setScoresRevealed(prev => !prev)}
+              >
+                {scores.map(s => (
+                  <div key={s.label} className="score-card">
+                    <div className="score-number">{s.value || '—'}</div>
+                    <div className="score-name">{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              {!scoresRevealed && <p className="scores-hint">Tap to reveal</p>}
             </div>
-          </div>
+          )}
 
           {/* Notes */}
           <div className="profile-card card-full">
@@ -236,12 +252,18 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
               <h2 className="card-title">Notes</h2>
               {noteSaved && <span className="note-saved-badge">Saved</span>}
             </div>
+            {applicant.notesSummary && (
+              <div className="notes-summary">
+                <div className="notes-summary-label">AI Summary</div>
+                <p className="notes-summary-text">{applicant.notesSummary}</p>
+              </div>
+            )}
             <textarea
               className="notes-textarea"
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
               placeholder="Add notes about this applicant..."
-              rows={6}
+              rows={8}
             />
             <button
               className="notes-save"
