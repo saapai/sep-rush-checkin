@@ -29,6 +29,7 @@ const MEMBER_DIRECTORY = {
   '+16503461001': 'Evan', '+19494669092': 'Maddie', '+16577240606': 'Darren',
   '+15596531293': 'Matthew', '+16264786106': 'Harrison', '+14152718271': 'Fiona',
   '+16196435215': 'Franco',
+  '+17478888100': 'Eden',
 };
 
 function getMemberName(phoneNumber) {
@@ -111,13 +112,18 @@ async function sendReaction(messageId, reaction) {
 }
 
 async function sendReply(to, content, mediaUrl) {
+  const memberLabel = getMemberName(to) || to;
+  console.log(`[OUTBOUND] to ${memberLabel}: "${content?.substring(0, 150)}"${mediaUrl ? ` +media` : ''}`);
   const payload = { number: to, from_number: FROM_NUMBER, content };
   if (mediaUrl) payload.media_url = mediaUrl;
   const res = await sbAPI('POST', '/api/send-message', payload);
-  if (res.error_message && res.error_message.includes('not authorized')) {
-    const fallback = { number: to, content };
-    if (mediaUrl) fallback.media_url = mediaUrl;
-    return sbAPI('POST', '/api/send-message', fallback);
+  if (res.error_message) {
+    console.log(`[SEND_ERROR] to ${memberLabel}: ${res.error_message}`);
+    if (res.error_message.includes('not authorized')) {
+      const fallback = { number: to, content };
+      if (mediaUrl) fallback.media_url = mediaUrl;
+      return sbAPI('POST', '/api/send-message', fallback);
+    }
   }
   return res;
 }
@@ -163,19 +169,59 @@ async function getAllApplicants() {
 function fuzzyMatch(applicants, query) {
   const q = query.trim().toLowerCase();
   if (!q) return [];
-  // Exact full name match
+
+  // 1. Exact full name match
   const exact = applicants.filter(a => a.name.toLowerCase() === q);
   if (exact.length >= 1) return exact;
-  // First + last combo match
-  const includes = applicants.filter(a => a.name.toLowerCase().includes(q) || q.includes(a.name.toLowerCase()));
-  if (includes.length >= 1) return includes;
-  // Word-level match
-  const qWords = q.split(/\s+/);
-  const wordMatch = applicants.filter(a => {
-    const nameWords = a.name.toLowerCase().split(/\s+/);
-    return qWords.some(qw => nameWords.some(nw => nw.includes(qw) || qw.includes(nw)));
+
+  // 2. Check for parenthetical/alias match e.g. "Rainey" matches "Yuang Liu(Rainey )"
+  const aliasMatch = applicants.filter(a => {
+    const m = a.name.match(/\((.+?)\)/);
+    return m && m[1].trim().toLowerCase() === q;
   });
-  return wordMatch;
+  if (aliasMatch.length === 1) return aliasMatch;
+
+  // 3. First name + last initial match: "Jack F" matches "Jack Featherston"
+  const qWords = q.split(/\s+/);
+  if (qWords.length === 2 && qWords[1].length <= 2) {
+    const firstName = qWords[0];
+    const lastInitial = qWords[1].replace(/[^a-z]/g, '');
+    if (lastInitial.length >= 1) {
+      const initialMatch = applicants.filter(a => {
+        const parts = a.name.toLowerCase().split(/\s+/);
+        return parts[0] === firstName && parts.length > 1 && parts[parts.length - 1].startsWith(lastInitial);
+      });
+      if (initialMatch.length === 1) return initialMatch;
+    }
+  }
+
+  // 4. Unique first name match: "Peyton" matches "Peyton Carroll" if only one Peyton exists
+  if (qWords.length === 1 || (qWords.length === 2 && qWords[1].length <= 2)) {
+    const firstName = qWords[0];
+    const firstNameMatch = applicants.filter(a => a.name.toLowerCase().split(/\s+/)[0] === firstName);
+    if (firstNameMatch.length === 1) return firstNameMatch;
+  }
+
+  // 5. Full name includes/contained match
+  const includes = applicants.filter(a => a.name.toLowerCase().includes(q) || q.includes(a.name.toLowerCase()));
+  if (includes.length === 1) return includes;
+  if (includes.length > 1) {
+    // Prefer exact first name match within includes
+    const firstExact = includes.filter(a => a.name.toLowerCase().split(/\s+/)[0] === qWords[0]);
+    if (firstExact.length === 1) return firstExact;
+    return includes;
+  }
+
+  // 6. Word-level match (only if query has 2+ meaningful words)
+  if (qWords.length >= 2) {
+    const wordMatch = applicants.filter(a => {
+      const nameWords = a.name.toLowerCase().split(/\s+/);
+      return qWords.every(qw => qw.length <= 2 || nameWords.some(nw => nw.startsWith(qw) || qw.startsWith(nw)));
+    });
+    if (wordMatch.length >= 1) return wordMatch;
+  }
+
+  return [];
 }
 
 async function appendNotes(applicant, memberName, newNotes) {
@@ -381,7 +427,7 @@ async function deleteMemberScores(applicant, memberName) {
   return { social: newSocial, prof: newProf, elo: newElo, weight: newWeight };
 }
 
-function buildApplicantSummary(applicants) {
+function buildApplicantSummary(applicants, mentionedNames) {
   if (applicants.length === 0) return 'No applicants registered yet.';
   const total = applicants.length;
   const d1 = applicants.filter(a => a.day_1).length;
@@ -396,6 +442,9 @@ function buildApplicantSummary(applicants) {
   let summary = `CURRENT RUSH DATA (${total} total applicants):\n`;
   summary += `Attendance — D1: ${d1}, D2: ${d2}, D3: ${d3}, D4: ${d4}, D5: ${d5}\n`;
   summary += `Statuses — ${statusStr}\n\n`;
+
+  // Determine which applicants are "mentioned" in the current message for full detail
+  const mentionedSet = new Set((mentionedNames || []).map(n => n.toLowerCase()));
 
   // Split applicants: those with notes/scores get detailed entries, rest get compact list
   const withData = applicants.filter(a => a.notes || a.elo || a.weight);
@@ -414,7 +463,15 @@ function buildApplicantSummary(applicants) {
       line += ` | Photo: ${a.photoUrl ? 'yes' : 'no'}`;
       if (a.weight) line += `\n  Scores: ${a.social.toFixed?.(1) ?? a.social}s / ${a.prof.toFixed?.(1) ?? a.prof}p / ${a.elo.toFixed?.(1) ?? a.elo} elo (${a.weight} ratings)`;
       if (a.notesSummary) line += `\n  Summary: ${a.notesSummary}`;
-      if (a.notes) line += `\n  Raw notes:\n  ${a.notes.replace(/\n/g, '\n  ')}`;
+      // Only include raw notes for applicants mentioned in the current message
+      const isMentioned = mentionedSet.size === 0 || [...mentionedSet].some(n =>
+        a.name.toLowerCase().includes(n) || n.includes(a.name.toLowerCase().split(' ')[0])
+      );
+      if (a.notes && isMentioned) {
+        line += `\n  Raw notes:\n  ${a.notes.replace(/\n/g, '\n  ')}`;
+      } else if (a.notes) {
+        line += `\n  Notes: ${a.notes.split('\n').length} entries`;
+      }
       summary += line + '\n';
     });
   }
@@ -487,6 +544,7 @@ The applicant data below is LIVE from Airtable — fetched fresh every message. 
 
 NOTES & SCORING SYSTEM:
 Members text notes about rushees → you save them to Airtable with tags → then ask for ratings.
+ALL notes and ratings happen RIGHT HERE in this text conversation. Members just text you their notes and scores — you handle everything. They do NOT need to go to Airtable or the Dashboard to rate or submit notes. The dashboard is view-only for checking data.
 READ ACCESS: Members can query ANY applicant data (name, attendance, scores, notes, status — everything).
 WRITE ACCESS: Members can only modify THEIR OWN notes and scores. They cannot edit another member's contributions.
 
@@ -497,10 +555,12 @@ CRITICAL TAG RULES:
 - NEVER repeat the notes content in your visible text — the user already knows what they wrote.
 - Always use the FULL NAME of the applicant in all tags, exactly as it appears in the applicant list.
 
-1. SAVING NOTES: When a member shares feedback about rushees, wrap each person's notes in tags. Use EXACTLY this format:
+1. SAVING NOTES: When a member shares feedback about rushees, wrap EACH person's notes in tags. CRITICAL: Generate a tag for EVERY SINGLE person mentioned — do NOT skip anyone. Use EXACTLY this format:
    [SAVE_NOTES:Firstname Lastname]notes here[/SAVE_NOTES]
    Multiple people: [SAVE_NOTES:Firstname Lastname]notes[/SAVE_NOTES][SAVE_NOTES:Another Person]notes[/SAVE_NOTES]
    IMPORTANT: Use [SAVE_NOTES:] with the underscore and bracket-style closing tags. NOT colon-separated.
+   IMPORTANT: Always use the FULL NAME from the applicant list below. Match first names to the list — e.g. if user writes "Kevin H" and there's "Kevin Henderson" in the list, use "Kevin Henderson".
+   IMPORTANT: If the user sends notes about 10+ people, you MUST generate tags for ALL of them. Do NOT stop partway.
    After all tags, just write "got it" or similar — the system auto-generates a pretty confirmation with all names and rating prompts. Do NOT write your own confirmation or list names.
 
 2. ASKING FOR RATINGS: The system auto-generates rating prompts after notes are saved. You do NOT need to ask for ratings — it's handled automatically. Just put the tags and a short "got it" or similar.
@@ -549,7 +609,11 @@ CRITICAL TAG RULES:
 11. OTHER: If notes don't specify who, ask. When looking up someone with notes, show the notes_summary.
 
 PHOTO INSTRUCTIONS:
-- EVERY TIME you give info about ONE specific applicant, include: [PHOTO:Full Name]
+- You CAN send photos, but ONLY when the user EXPLICITLY asks to see someone's photo or look up a profile.
+- Examples of explicit requests: "show me X", "what does X look like", "pull up X", "photo of X", "who is X"
+- When the user explicitly requests a photo/lookup: [PHOTO:Full Name]
+- Do NOT attach photos automatically when discussing, saving notes, giving scores, or answering general questions.
+- NEVER say "I can't send photos" — you can, but only when asked.
 - Place it at the END of your reply on its own line.
 - Do NOT use photo tags when listing multiple people or clarifying.
 
@@ -680,6 +744,15 @@ async function processMessage({ content, sender, message_handle }) {
 
     console.log(`From ${knownName || sender} | history: ${history.length} | first: ${isFirstMessage}`);
 
+    // Build compact name list for matching
+    const nameList = applicants.map(a => a.name).sort().join(', ');
+
+    // Extract names mentioned in the user's message for targeted raw notes inclusion
+    const contentWords = content.toLowerCase().split(/[\s,;:.\-—]+/).filter(w => w.length >= 3);
+    const mentionedNames = contentWords.filter(w =>
+      applicants.some(a => a.name.toLowerCase().split(/\s+/)[0] === w || a.name.toLowerCase() === w)
+    );
+
     const systemPrompt = `${RUSH_CONTEXT}
 
 CURRENT TIME (Pacific): ${now}
@@ -687,7 +760,10 @@ CURRENT RUSH DAY: Day ${currDay.num} — ${currDay.name}
 ${knownName ? `MEMBER TEXTING: ${knownName}` : 'UNKNOWN MEMBER'}
 ${isFirstMessage ? 'THIS IS THEIR FIRST MESSAGE EVER — follow FIRST MESSAGE BEHAVIOR.' : ''}
 
-${buildApplicantSummary(applicants)}`;
+APPLICANT NAME LIST (use these EXACT names in all tags):
+${nameList}
+
+${buildApplicantSummary(applicants, mentionedNames)}`;
 
     const messages = [
       { role: 'system', content: systemPrompt },
@@ -702,12 +778,16 @@ ${buildApplicantSummary(applicants)}`;
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
-      max_tokens: 2500,
+      max_tokens: 4096,
       temperature: 0.7,
     });
 
     let reply = completion.choices[0]?.message?.content || "hmm something went wrong, try again?";
-    console.log(`GPT raw: ${reply.substring(0, 300)}`);
+    const finishReason = completion.choices[0]?.finish_reason || 'unknown';
+    console.log(`GPT raw (${finishReason}): ${reply.substring(0, 500)}`);
+    if (finishReason === 'length') {
+      console.warn('WARNING: GPT output was truncated (max_tokens hit)');
+    }
 
     // --- Parse ALL tags (handle ALL GPT output formats) ---
     const reactMatch = reply.match(/^\[REACT:(love|like|dislike|laugh|emphasize|question)\]\s*/i);
@@ -727,9 +807,11 @@ ${buildApplicantSummary(applicants)}`;
     if (reactMatch) reply = reply.replace(reactMatch[0], '').trim();
     // Strip bracket-closed notes: [SAVE_NOTES:Name]content[/SAVE_NOTES]
     reply = reply.replace(/\[SAVE_?NOTES:(.+?)\]([\s\S]*?)\[\/SAVE_?NOTES\]/gi, '').trim();
-    // Strip closing tags, then opening tags (handles unclosed bracket format)
+    // Strip closing tags
     reply = reply.replace(/\[\/SAVE_?NOTES\]/gi, '').trim();
-    reply = reply.replace(/\[SAVE_?NOTES:[^\]]+\]/gi, '').trim();
+    // Strip Format 3 unclosed tags AND their trailing content (up to next tag or natural break)
+    // This prevents note content from leaking into the visible reply
+    reply = reply.replace(/\[SAVE_?NOTES:[^\]]+\][^\[]*/gi, '').trim();
     // Strip score tags
     reply = reply.replace(/\[SAVE_?SCORES:[^\]]+\]/gi, '').trim();
     for (const m of allEditNotesMatches) reply = reply.replace(m[0], '').trim();
@@ -746,7 +828,6 @@ ${buildApplicantSummary(applicants)}`;
     }
 
     const memberName = knownName || sender;
-    let serverClarifyNames = [];
 
     // Save notes — collect results for pretty confirmation
     const savedNotes = [];
@@ -766,12 +847,12 @@ ${buildApplicantSummary(applicants)}`;
           console.error(`Notes err ${notesName}:`, e.message);
         }
       } else if (matches.length > 1) {
-        console.log(`Ambiguous "${notesName}": ${matches.map(m => m.name).join(', ')}`);
-        matches.forEach(m => { if (!serverClarifyNames.includes(m.name)) serverClarifyNames.push(m.name); });
-        reply += `\n\nhold on — which ${notesName}? ${matches.map(m => m.name).join(' or ')}?`;
+        console.log(`Ambiguous note "${notesName}": ${matches.map(m => m.name).join(', ')}`);
+        // Don't send photos for note disambiguation — just add to failed with hint
+        failedNotes.push(`${notesName} (${matches.map(m => m.name).join(' or ')}?)`);
       } else {
         failedNotes.push(notesName);
-        console.log(`No match: "${notesName}"`);
+        console.log(`No match for note: "${notesName}"`);
       }
     }
 
@@ -812,7 +893,7 @@ ${buildApplicantSummary(applicants)}`;
           console.error(`Score err ${scoreName}:`, e.message);
         }
       } else if (matches.length > 1) {
-        matches.forEach(m => { if (!serverClarifyNames.includes(m.name)) serverClarifyNames.push(m.name); });
+        console.log(`Ambiguous score "${scoreName}": ${matches.map(m => m.name).join(', ')}`);
         reply += `\n\nwhich ${scoreName}? ${matches.map(m => m.name).join(' or ')}?`;
       }
     }
@@ -830,7 +911,6 @@ ${buildApplicantSummary(applicants)}`;
           console.error(`Edit notes err ${editName}:`, e.message);
         }
       } else if (matches.length > 1) {
-        matches.forEach(a => { if (!serverClarifyNames.includes(a.name)) serverClarifyNames.push(a.name); });
         reply += `\n\nwhich ${editName}? ${matches.map(a => a.name).join(' or ')}?`;
       }
     }
@@ -893,17 +973,32 @@ ${buildApplicantSummary(applicants)}`;
     // Clean up excessive newlines
     reply = reply.replace(/\n{3,}/g, '\n\n');
 
-    // Merge GPT clarify + server clarify
+    // Safety net: strip any leaked tags that slipped through
+    if (/\[SAVE_?NOTES/i.test(reply) || /\[SAVE_?SCORES/i.test(reply) || /\[EDIT_MY_NOTES/i.test(reply) || /\[DELETE_MY/i.test(reply)) {
+      console.warn('LEAKED TAGS detected in reply, stripping all brackets');
+      reply = reply.replace(/\[[^\]]*\]/g, '').trim();
+    }
+
+    // Guard against empty reply after tag stripping
+    if (!reply.trim()) {
+      reply = 'got it';
+      console.log('Empty reply after tag stripping, defaulting to "got it"');
+    }
+
+    // Only send clarify photos on pure lookups (no notes/scores/edits/deletes in this message)
+    const isLookup = allNotesMatches.length === 0 && allScoresMatches.length === 0
+      && allEditNotesMatches.length === 0 && allDeleteNotesMatches.length === 0 && allDeleteScoresMatches.length === 0;
+
     const allClarifyNames = [];
-    if (clarifyMatch) {
+    if (clarifyMatch && isLookup) {
       clarifyMatch[1].split('|').map(n => n.trim()).forEach(n => allClarifyNames.push(n));
     }
-    serverClarifyNames.forEach(n => { if (!allClarifyNames.includes(n)) allClarifyNames.push(n); });
 
-    // Send reply
+    // Send reply — only send clarify photos for lookups, max 3
     if (allClarifyNames.length > 0) {
       await sendReply(sender, reply);
-      for (const name of allClarifyNames) {
+      const photosToSend = allClarifyNames.slice(0, 3);
+      for (const name of photosToSend) {
         const match = applicants.find(a => a.name.toLowerCase() === name.toLowerCase())
           || applicants.find(a => a.name.toLowerCase().includes(name.toLowerCase()));
         if (match && match.photoUrl) {
@@ -917,8 +1012,15 @@ ${buildApplicantSummary(applicants)}`;
         const match = applicants.find(a => a.name.toLowerCase() === photoName)
           || applicants.find(a => a.name.toLowerCase().includes(photoName))
           || applicants.find(a => photoName.includes(a.name.toLowerCase()));
-        if (match && match.photoUrl) photoUrl = match.photoUrl;
+        if (match && match.photoUrl) {
+          photoUrl = match.photoUrl;
+        } else {
+          console.log(`[PHOTO] tag "${photoMatch[1]}" — no photo found`);
+        }
       }
+
+      // No auto-attach — photos only sent when GPT explicitly uses [PHOTO:] tag (i.e. user asked for a lookup)
+
       await sendReply(sender, reply, photoUrl || undefined);
     }
 
@@ -972,7 +1074,8 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  console.log(`Msg from ${sender}: "${content}"`);
+  const memberLabel = getMemberName(sender) || sender;
+  console.log(`[INBOUND] ${memberLabel}: "${content.substring(0, 200)}"`);
 
   const queue = getSenderQueue(sender);
   queue.pending.push({ content, message_handle, time: Date.now() });
