@@ -497,20 +497,16 @@ CRITICAL TAG RULES:
 - NEVER repeat the notes content in your visible text — the user already knows what they wrote.
 - Always use the FULL NAME of the applicant in all tags, exactly as it appears in the applicant list.
 
-1. SAVING NOTES: When a member shares feedback about rushees, put ALL save tags first, then your reply:
-   [SAVE_NOTES:Buddy Heild]went to beach after finals, kansas city[/SAVE_NOTES][SAVE_NOTES:Glizz Heild]chino hills, spontaneous, reckless driver[/SAVE_NOTES]got it, notes saved for buddy, glizz, and joohhny. rate em 1-5 (1=red flag, 5=amazing)
-   social: buddy, glizz, joohhny
-   prof: buddy, glizz, joohhny
+1. SAVING NOTES: When a member shares feedback about rushees, wrap each person's notes in tags. Use EXACTLY this format:
+   [SAVE_NOTES:Firstname Lastname]notes here[/SAVE_NOTES]
+   Multiple people: [SAVE_NOTES:Firstname Lastname]notes[/SAVE_NOTES][SAVE_NOTES:Another Person]notes[/SAVE_NOTES]
+   IMPORTANT: Use [SAVE_NOTES:] with the underscore and bracket-style closing tags. NOT colon-separated.
+   After all tags, just write "got it" or similar — the system auto-generates a pretty confirmation with all names and rating prompts. Do NOT write your own confirmation or list names.
 
-   KEY: Your reply should be ONE short confirmation + the rating ask. NOT a per-person breakdown.
-
-2. ASKING FOR RATINGS: After notes are saved, ask concisely:
-   "notes saved for [names]. rate em 1-5 (1=red flag, 5=amazing)"
-   "social: [firstname1], [firstname2], [firstname3]"
-   "prof: [firstname1], [firstname2], [firstname3]"
+2. ASKING FOR RATINGS: The system auto-generates rating prompts after notes are saved. You do NOT need to ask for ratings — it's handled automatically. Just put the tags and a short "got it" or similar.
 
 3. SAVING SCORES: When the user gives ratings, put ALL score tags first, then just say "locked in":
-   [SAVE_SCORES:Buddy Heild:4:3][SAVE_SCORES:Glizz Heild:5:4]locked in
+   [SAVE_SCORES:Firstname Lastname:4:3][SAVE_SCORES:Another Person:5:4]locked in
    The system auto-appends the real elo tally from Airtable. Do NOT write your own tally.
    Scores are tracked per-member. If they re-rate someone, their old score is replaced (not stacked).
 
@@ -536,16 +532,14 @@ CRITICAL TAG RULES:
    - "social 4 3 prof 5 2" → same
    - "3 4" with 1 person → social=3, prof=4
 
-9. NAME DISAMBIGUATION: ONLY disambiguate when the name the user said matches multiple people equally.
-   - "Heild" is ambiguous if there's "Buddy Heild" AND "Glizz Heild" → ask which one
-   - "Glizz" is NOT ambiguous even though Glizz's last name is shared — "Glizz" uniquely identifies "Glizz Heild"
-   - "Buddy" is NOT ambiguous — it uniquely identifies "Buddy Heild"
-   - First names, nicknames, or any part of the name that matches ONLY ONE person → use their full name, no disambiguation needed
-   - ONLY disambiguate when the text literally matches 2+ different applicants
+9. NAME DISAMBIGUATION: ONLY disambiguate when the name the user typed matches multiple applicants in the data above.
+   - Check the APPLICANT DETAILS data. If the user's text matches only ONE person, use their full name — no disambiguation needed.
+   - A first name that is unique among all applicants is NOT ambiguous.
+   - A last name shared by 2+ applicants IS ambiguous if the user only typed the last name.
    - When disambiguation IS needed:
      - Do NOT save/edit/delete anything
-     - Ask: "which heild — buddy heild or glizz heild?"
-     - Include: [CLARIFY_PHOTOS:Buddy Heild|Glizz Heild]
+     - Ask which one, listing the full names
+     - Include: [CLARIFY_PHOTOS:Full Name 1|Full Name 2]
    This applies to ALL operations: lookups, notes, scores, edits, deletes.
 
 10. DIVERSIONS: If the user changes topic while you're waiting for ratings:
@@ -660,10 +654,20 @@ ${buildApplicantSummary(applicants)}`;
     let reply = completion.choices[0]?.message?.content || "hmm something went wrong, try again?";
     console.log(`GPT raw: ${reply.substring(0, 300)}`);
 
-    // --- Parse ALL tags ---
+    // --- Parse ALL tags (handle both [SAVE_NOTES:] and [SAVENOTES:] formats) ---
     const reactMatch = reply.match(/^\[REACT:(love|like|dislike|laugh|emphasize|question)\]\s*/i);
-    const allNotesMatches = [...reply.matchAll(/\[SAVE_NOTES:(.+?)\]([\s\S]*?)\[\/SAVE_NOTES\]/gi)];
-    const allScoresMatches = [...reply.matchAll(/\[SAVE_SCORES:(.+?):(\d):(\d)\]/gi)];
+    // Format 1: [SAVE_NOTES:Name]content[/SAVE_NOTES] or [SAVENOTES:Name]content[/SAVENOTES]
+    const bracketNotesMatches = [...reply.matchAll(/\[SAVE_?NOTES:(.+?)\]([\s\S]*?)\[\/SAVE_?NOTES\]/gi)];
+    // Format 2: [SAVENOTES:Name:content] (colon-separated, no closing tag)
+    const colonNotesMatches = [...reply.matchAll(/\[SAVE_?NOTES:([^:\]]+):([^\]]+)\]/gi)];
+    // Merge both formats, avoiding duplicates
+    const allNotesMatches = [...bracketNotesMatches];
+    for (const m of colonNotesMatches) {
+      const name = m[1].trim();
+      const isDupe = allNotesMatches.some(existing => existing[1].trim().toLowerCase() === name.toLowerCase());
+      if (!isDupe) allNotesMatches.push(m);
+    }
+    const allScoresMatches = [...reply.matchAll(/\[SAVE_?SCORES:(.+?):(\d):(\d)\]/gi)];
     const allEditNotesMatches = [...reply.matchAll(/\[EDIT_MY_NOTES:(.+?)\]([\s\S]*?)\[\/EDIT_MY_NOTES\]/gi)];
     const allDeleteNotesMatches = [...reply.matchAll(/\[DELETE_MY_NOTES:(.+?)\]/gi)];
     const allDeleteScoresMatches = [...reply.matchAll(/\[DELETE_MY_SCORES:(.+?)\]/gi)];
@@ -672,10 +676,14 @@ ${buildApplicantSummary(applicants)}`;
 
     console.log(`Tags: notes=${allNotesMatches.length} scores=${allScoresMatches.length} editNotes=${allEditNotesMatches.length} delNotes=${allDeleteNotesMatches.length} photo=${!!photoMatch} clarify=${!!clarifyMatch}`);
 
-    // Strip all tags from reply
+    // Strip all tags from reply (handle all format variants)
     if (reactMatch) reply = reply.replace(reactMatch[0], '').trim();
-    for (const m of allNotesMatches) reply = reply.replace(m[0], '').trim();
-    for (const m of allScoresMatches) reply = reply.replace(m[0], '').trim();
+    // Strip bracket-style notes: [SAVE_NOTES:Name]content[/SAVE_NOTES] and [SAVENOTES:Name]content[/SAVENOTES]
+    reply = reply.replace(/\[SAVE_?NOTES:(.+?)\]([\s\S]*?)\[\/SAVE_?NOTES\]/gi, '').trim();
+    // Strip colon-style notes: [SAVENOTES:Name:content] and [SAVE_NOTES:Name:content]
+    reply = reply.replace(/\[SAVE_?NOTES:[^\]]+\]/gi, '').trim();
+    // Strip score tags (both formats)
+    reply = reply.replace(/\[SAVE_?SCORES:[^\]]+\]/gi, '').trim();
     for (const m of allEditNotesMatches) reply = reply.replace(m[0], '').trim();
     for (const m of allDeleteNotesMatches) reply = reply.replace(m[0], '').trim();
     for (const m of allDeleteScoresMatches) reply = reply.replace(m[0], '').trim();
@@ -692,7 +700,9 @@ ${buildApplicantSummary(applicants)}`;
     const memberName = knownName || sender;
     let serverClarifyNames = [];
 
-    // Save notes
+    // Save notes — collect results for pretty confirmation
+    const savedNotes = [];
+    const failedNotes = [];
     for (const notesMatch of allNotesMatches) {
       const notesName = notesMatch[1].trim();
       const notesContent = notesMatch[2].trim();
@@ -701,8 +711,10 @@ ${buildApplicantSummary(applicants)}`;
       if (matches.length === 1) {
         try {
           await appendNotes(matches[0], memberName, notesContent);
+          savedNotes.push(matches[0].name);
           console.log(`Notes saved: ${matches[0].name} by ${memberName}`);
         } catch (e) {
+          failedNotes.push(notesName);
           console.error(`Notes err ${notesName}:`, e.message);
         }
       } else if (matches.length > 1) {
@@ -710,8 +722,23 @@ ${buildApplicantSummary(applicants)}`;
         matches.forEach(m => { if (!serverClarifyNames.includes(m.name)) serverClarifyNames.push(m.name); });
         reply += `\n\nhold on — which ${notesName}? ${matches.map(m => m.name).join(' or ')}?`;
       } else {
+        failedNotes.push(notesName);
         console.log(`No match: "${notesName}"`);
       }
+    }
+
+    // Build pretty confirmation for saved notes (overrides GPT reply)
+    if (savedNotes.length > 0) {
+      const firstNames = savedNotes.map(n => n.split(' ')[0].toLowerCase());
+      let prettyReply = `notes locked in for ${savedNotes.length} rushee${savedNotes.length > 1 ? 's' : ''}:\n`;
+      savedNotes.forEach(name => {
+        prettyReply += `- ${name}\n`;
+      });
+      prettyReply += `\nrate em 1-5 (1=red flag, 5=amazing)\nsocial: ${firstNames.join(', ')}\nprof: ${firstNames.join(', ')}`;
+      if (failedNotes.length > 0) {
+        prettyReply += `\n\ncouldn't find: ${failedNotes.join(', ')} — double check the names?`;
+      }
+      reply = prettyReply;
     }
 
     // Save scores + build server-side tally
@@ -790,22 +817,26 @@ ${buildApplicantSummary(applicants)}`;
 
     // Server-side score confirmation — overwrite GPT's guesses with real Airtable data
     if (scoreResults.length > 0) {
-      // Remove any lines GPT wrote that look like score summaries
-      reply = reply.replace(/^.*—\s*you:.*$/gm, '').trim();
-      reply = reply.replace(/^.*composite:.*$/gim, '').trim();
-      reply = reply.replace(/^.*elo.*rating.*$/gim, '').trim();
-      // Clean up "locked in" and extra whitespace
-      reply = reply.replace(/(locked in)\s*/i, 'locked in').trim();
-      // Build real tally
-      let tally = '\n\n';
+      let tally = '';
       for (const r of scoreResults) {
         const updateLabel = r.updated ? ' (updated)' : '';
         tally += `${r.name} — you: ${r.social}s/${r.prof}p, composite: ${r.elo.toFixed(1)} elo (${r.weight} ratings)${updateLabel}\n`;
       }
-      if (reply.toLowerCase().includes('locked in')) {
-        reply = reply.replace(/(locked in)/i, `$1${tally}`).trim();
+
+      if (savedNotes.length > 0) {
+        // Notes + scores in same message — append score tally to notes confirmation
+        reply += `\n\nscores locked in:\n${tally}`;
       } else {
-        reply = `locked in${tally}`.trim();
+        // Scores only — clean GPT reply and build tally
+        reply = reply.replace(/^.*—\s*you:.*$/gm, '').trim();
+        reply = reply.replace(/^.*composite:.*$/gim, '').trim();
+        reply = reply.replace(/^.*elo.*rating.*$/gim, '').trim();
+        reply = reply.replace(/(locked in)\s*/i, 'locked in').trim();
+        if (reply.toLowerCase().includes('locked in')) {
+          reply = reply.replace(/(locked in)/i, `$1\n\n${tally}`).trim();
+        } else {
+          reply = `locked in\n\n${tally}`.trim();
+        }
       }
     }
 
