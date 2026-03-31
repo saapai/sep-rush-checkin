@@ -206,6 +206,30 @@
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
+.dash-present {
+  padding: 0.7rem 1.4rem;
+  background: white;
+  color: #111;
+  border: 1.5px solid #111;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dash-present:hover:not(:disabled) {
+  background: #111;
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.dash-present:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .dash-loading, .dash-empty {
   text-align: center;
   padding: 4rem;
@@ -325,6 +349,202 @@
   font-size: 0.8rem;
   color: #999;
   margin-top: 3px;
+}
+
+/* Present filter modal */
+.present-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.present-modal {
+  background: white;
+  border-radius: 20px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 460px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+
+.present-modal-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #111;
+  margin: 0 0 1.5rem;
+  letter-spacing: -0.3px;
+}
+
+.present-modal-section {
+  margin-bottom: 1.5rem;
+}
+
+.present-modal-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #999;
+  margin-bottom: 0.6rem;
+}
+
+.present-modal-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.present-modal-label-row .present-modal-label {
+  margin-bottom: 0;
+}
+
+.present-day-mode {
+  display: flex;
+  gap: 0.25rem;
+  background: #f0f0f0;
+  border-radius: 8px;
+  padding: 0.2rem;
+}
+
+.present-mode-btn {
+  padding: 0.25rem 0.7rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: #888;
+  transition: all 0.15s;
+}
+
+.present-mode-btn.active {
+  background: white;
+  color: #111;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.present-modal-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.present-chip {
+  padding: 0.4rem 0.9rem;
+  border: 1.5px solid #e2e2e2;
+  border-radius: 100px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: white;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.present-chip:hover {
+  border-color: #999;
+  color: #111;
+}
+
+.present-chip.active {
+  background: #111;
+  border-color: #111;
+  color: white;
+}
+
+.present-chip-clear {
+  padding: 0.4rem 0.9rem;
+  border: none;
+  border-radius: 100px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: #f5f5f5;
+  color: #999;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.present-chip-clear:hover {
+  background: #ebebeb;
+  color: #555;
+}
+
+.present-modal-hint {
+  font-size: 0.78rem;
+  color: #bbb;
+  margin: 0.5rem 0 0;
+}
+
+.present-modal-hint strong {
+  color: #888;
+}
+
+.present-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1.25rem;
+  border-top: 1.5px solid #f0f0f0;
+  margin-top: 0.5rem;
+}
+
+.present-modal-count {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #888;
+}
+
+.present-modal-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.present-modal-cancel {
+  padding: 0.6rem 1.2rem;
+  background: #f5f5f5;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.present-modal-cancel:hover {
+  background: #ebebeb;
+  color: #333;
+}
+
+.present-modal-start {
+  padding: 0.6rem 1.4rem;
+  background: #111;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: white;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.present-modal-start:hover:not(:disabled) {
+  background: #333;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.present-modal-start:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* Responsive */

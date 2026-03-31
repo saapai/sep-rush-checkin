@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Airtable from 'airtable';
+import Slideshow from '../components/Slideshow';
 import './Dashboard.css';
 
 const base = new Airtable({
@@ -23,6 +24,12 @@ interface Applicant {
   day_4: boolean;
   day_5: boolean;
   elo: number;
+  notes: string;
+  notesSummary: string;
+  pm_notes: string;
+  social: number;
+  prof: number;
+  weight: number;
 }
 
 interface DashboardProps {
@@ -38,6 +45,12 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name-asc');
+  const [showSlideshow, setShowSlideshow] = useState(false);
+  const [slideshowStartIndex, setSlideshowStartIndex] = useState(0);
+  const [showPresentModal, setShowPresentModal] = useState(false);
+  const [slideStatuses, setSlideStatuses] = useState<string[]>([]);
+  const [slideDays, setSlideDays] = useState<number[]>([]);
+  const [slideDayMode, setSlideDayMode] = useState<'any' | 'all'>('any');
 
   const isAdmin = sessionStorage.getItem('dash_auth') === 'admin';
 
@@ -78,6 +91,12 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
           day_4: !!r.get('day_4'),
           day_5: !!r.get('day_5'),
           elo: (r.get('elo') as number) || 0,
+          notes: (r.get('notes') as string) || '',
+          notesSummary: (r.get('notes_summary') as string) || '',
+          pm_notes: (r.get('pm_notes') as string) || '',
+          social: (r.get('social') as number) || 0,
+          prof: (r.get('prof') as number) || 0,
+          weight: (r.get('weight') as number) || 0,
         }))
         .filter(a => a.name.trim() !== '')
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -115,6 +134,22 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
     });
 
   const statuses = [...new Set(applicants.map(a => a.status).filter(Boolean))];
+
+  const slideshowApplicants = filtered.filter(a => {
+    if (slideStatuses.length > 0 && !slideStatuses.includes(a.status)) return false;
+    if (slideDays.length > 0) {
+      const dayMap: Record<number, boolean> = { 1: a.day_1, 2: a.day_2, 3: a.day_3, 4: a.day_4, 5: a.day_5 };
+      const attended = slideDays.map(d => dayMap[d]);
+      if (slideDayMode === 'any' ? !attended.some(Boolean) : !attended.every(Boolean)) return false;
+    }
+    return true;
+  });
+
+  const toggleSlideStatus = (s: string) =>
+    setSlideStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+
+  const toggleSlideDay = (d: number) =>
+    setSlideDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
 
   if (!authenticated) {
     return (
@@ -192,12 +227,25 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
           {isAdmin && <option value="elo-asc">Elo (Lowest)</option>}
         </select>
         <button className="dash-refresh" onClick={fetchApplicants}>Refresh</button>
+        {isAdmin && (
+          <button
+            className="dash-present"
+            onClick={() => setShowPresentModal(true)}
+            disabled={filtered.length === 0}
+          >
+            Present
+          </button>
+        )}
       </div>
 
       {/* Card grid */}
       <div className="card-grid">
-        {filtered.map(a => (
-          <div key={a.id} className="applicant-card" onClick={() => navigate(`/applicant/${a.id}`)}>
+        {filtered.map((a, idx) => (
+          <div key={a.id} className="applicant-card" onClick={() => {
+            sessionStorage.setItem('dash_nav_ids', JSON.stringify(filtered.map(x => x.id)));
+            sessionStorage.setItem('dash_nav_idx', String(idx));
+            navigate(`/applicant/${a.id}`);
+          }}>
             <div className="card-photo-wrap">
               {a.photo ? (
                 <img src={a.photo} alt={a.name} className="card-photo" loading="lazy" />
@@ -226,6 +274,107 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
       </div>
 
       {filtered.length === 0 && <div className="dash-empty">No applicants found.</div>}
+
+      {showPresentModal && (
+        <div className="present-modal-overlay" onClick={() => setShowPresentModal(false)}>
+          <div className="present-modal" onClick={e => e.stopPropagation()}>
+            <h2 className="present-modal-title">Presentation Filters</h2>
+
+            <div className="present-modal-section">
+              <div className="present-modal-label">Status</div>
+              <div className="present-modal-chips">
+                {statuses.map(s => (
+                  <button
+                    key={s}
+                    className={`present-chip ${slideStatuses.includes(s) ? 'active' : ''}`}
+                    onClick={() => toggleSlideStatus(s)}
+                  >
+                    {s}
+                  </button>
+                ))}
+                {slideStatuses.length > 0 && (
+                  <button className="present-chip-clear" onClick={() => setSlideStatuses([])}>
+                    Clear
+                  </button>
+                )}
+              </div>
+              {slideStatuses.length === 0 && <p className="present-modal-hint">All statuses included</p>}
+            </div>
+
+            <div className="present-modal-section">
+              <div className="present-modal-label-row">
+                <div className="present-modal-label">Attendance</div>
+                {slideDays.length > 0 && (
+                  <div className="present-day-mode">
+                    <button
+                      className={`present-mode-btn ${slideDayMode === 'any' ? 'active' : ''}`}
+                      onClick={() => setSlideDayMode('any')}
+                    >
+                      Any
+                    </button>
+                    <button
+                      className={`present-mode-btn ${slideDayMode === 'all' ? 'active' : ''}`}
+                      onClick={() => setSlideDayMode('all')}
+                    >
+                      All
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="present-modal-chips">
+                {[1, 2, 3, 4, 5].map(d => (
+                  <button
+                    key={d}
+                    className={`present-chip ${slideDays.includes(d) ? 'active' : ''}`}
+                    onClick={() => toggleSlideDay(d)}
+                  >
+                    Day {d}
+                  </button>
+                ))}
+                {slideDays.length > 0 && (
+                  <button className="present-chip-clear" onClick={() => setSlideDays([])}>
+                    Clear
+                  </button>
+                )}
+              </div>
+              {slideDays.length === 0 && <p className="present-modal-hint">All attendance included</p>}
+              {slideDays.length > 0 && (
+                <p className="present-modal-hint">
+                  Attended <strong>{slideDayMode === 'any' ? 'any' : 'all'}</strong> of the selected days
+                </p>
+              )}
+            </div>
+
+            <div className="present-modal-footer">
+              <span className="present-modal-count">
+                {slideshowApplicants.length} applicant{slideshowApplicants.length !== 1 ? 's' : ''}
+              </span>
+              <div className="present-modal-actions">
+                <button className="present-modal-cancel" onClick={() => setShowPresentModal(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="present-modal-start"
+                  disabled={slideshowApplicants.length === 0}
+                  onClick={() => { setShowPresentModal(false); setSlideshowStartIndex(0); setShowSlideshow(true); }}
+                >
+                  Start &rarr;
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSlideshow && slideshowApplicants.length > 0 && (
+        <Slideshow
+          applicants={slideshowApplicants}
+          startIndex={slideshowStartIndex}
+          onClose={() => setShowSlideshow(false)}
+          isAdmin={isAdmin}
+          navigate={navigate}
+        />
+      )}
     </div>
   );
 };

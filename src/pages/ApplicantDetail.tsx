@@ -2,6 +2,37 @@ import { useState, useEffect } from 'react';
 import Airtable from 'airtable';
 import './ApplicantDetail.css';
 
+const normalizeForDedup = (text: string) =>
+  text.toLowerCase().replace(/[.,;:!?—–-]/g, '').replace(/\s+/g, ' ').trim();
+
+const parseNotesByDay = (notes: string) => {
+  const dayNotes: { [key: number]: { [name: string]: { original: string; normalized: string }[] } } = {};
+  const regex = /\[([^\]]+)\s—\s+Day\s+(\d+)\]:\s*([^\[]*?)(?=\[|$)/g;
+  let match;
+  while ((match = regex.exec(notes)) !== null) {
+    const day = parseInt(match[2]);
+    const name = match[1].trim();
+    const text = match[3].trim();
+    if (!text) continue;
+    if (!dayNotes[day]) dayNotes[day] = {};
+    if (!dayNotes[day][name]) dayNotes[day][name] = [];
+    const normalized = normalizeForDedup(text);
+    if (!dayNotes[day][name].some(item => item.normalized === normalized)) {
+      dayNotes[day][name].push({ original: text, normalized });
+    }
+  }
+  const formatted: { [key: number]: string[] } = {};
+  Object.entries(dayNotes).forEach(([dayStr, namesMap]) => {
+    const day = parseInt(dayStr);
+    formatted[day] = Object.entries(namesMap).map(([name, textItems]) =>
+      textItems.length === 1
+        ? `${name}: ${textItems[0].original}`
+        : `${name}:\n${textItems.map(item => `  • ${item.original}`).join('\n')}`
+    );
+  });
+  return formatted;
+};
+
 const base = new Airtable({
   apiKey: import.meta.env.VITE_AIRTABLE_API_KEY
 }).base(import.meta.env.VITE_AIRTABLE_BASE_ID);
@@ -9,6 +40,8 @@ const base = new Airtable({
 const TABLE = "Rush Spring '26";
 const PASSCODE = 'quinnanish';
 const ADMIN_PASSCODE = 'quinnanishadmin';
+
+const SHOW_AI_SUMMARY = false;
 
 interface Applicant {
   id: string;
@@ -28,6 +61,7 @@ interface Applicant {
   social: number;
   prof: number;
   weight: number;
+  pm_notes: string;
 }
 
 interface ApplicantDetailProps {
@@ -40,11 +74,22 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
   const [password, setPassword] = useState('');
   const [passError, setPassError] = useState(false);
   const [applicant, setApplicant] = useState<Applicant | null>(null);
+
+  const navIds: string[] = (() => {
+    try { return JSON.parse(sessionStorage.getItem('dash_nav_ids') || '[]'); } catch { return []; }
+  })();
+  const navIdx = navIds.indexOf(applicantId);
+  const prevId = navIdx > 0 ? navIds[navIdx - 1] : null;
+  const nextId = navIdx >= 0 && navIdx < navIds.length - 1 ? navIds[navIdx + 1] : null;
   const [loading, setLoading] = useState(true);
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
+  const [pmNoteText, setPmNoteText] = useState('');
+  const [savingPmNote, setSavingPmNote] = useState(false);
+  const [pmNoteSaved, setPmNoteSaved] = useState(false);
   const [scoresRevealed, setScoresRevealed] = useState(false);
+  const [activeDay, setActiveDay] = useState(1);
 
   const isAdmin = sessionStorage.getItem('dash_auth') === 'admin';
 
@@ -66,6 +111,16 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
       setTimeout(() => setPassError(false), 1500);
     }
   };
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
+      if (e.key === 'ArrowRight' && nextId) navigate(`/applicant/${nextId}`);
+      if (e.key === 'ArrowLeft' && prevId) navigate(`/applicant/${prevId}`);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [prevId, nextId, navigate]);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -91,9 +146,11 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
           social: (record.get('social') as number) || 0,
           prof: (record.get('prof') as number) || 0,
           weight: (record.get('weight') as number) || 0,
+          pm_notes: (record.get('pm_notes') as string) || '',
         };
         setApplicant(a);
         setNoteText(a.notes);
+        setPmNoteText(a.pm_notes);
       } catch (error) {
         console.error('Error fetching applicant:', error);
       } finally {
@@ -116,6 +173,22 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
       alert('Error saving note.');
     } finally {
       setSavingNote(false);
+    }
+  };
+
+  const savePmNote = async () => {
+    if (!applicant) return;
+    setSavingPmNote(true);
+    try {
+      await base(TABLE).update(applicant.id, { pm_notes: pmNoteText });
+      setApplicant(prev => prev ? { ...prev, pm_notes: pmNoteText } : null);
+      setPmNoteSaved(true);
+      setTimeout(() => setPmNoteSaved(false), 2000);
+    } catch (error) {
+      console.error('Error saving PM note:', error);
+      alert('Error saving PM note.');
+    } finally {
+      setSavingPmNote(false);
     }
   };
 
@@ -185,6 +258,27 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
             <span className="back-arrow">&#8592;</span>
             <span>Dashboard</span>
           </button>
+          {navIds.length > 0 && (
+            <div className="profile-nav">
+              <button
+                className="profile-nav-btn"
+                disabled={!prevId}
+                onClick={() => prevId && navigate(`/applicant/${prevId}`)}
+              >
+                &#8592; Prev
+              </button>
+              <span className="profile-nav-count">
+                {navIdx + 1} / {navIds.length}
+              </span>
+              <button
+                className="profile-nav-btn"
+                disabled={!nextId}
+                onClick={() => nextId && navigate(`/applicant/${nextId}`)}
+              >
+                Next &#8594;
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Hero section */}
@@ -250,29 +344,90 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
           <div className="profile-card card-full">
             <div className="notes-header">
               <h2 className="card-title">Notes</h2>
-              {noteSaved && <span className="note-saved-badge">Saved</span>}
+              {isAdmin && noteSaved && <span className="note-saved-badge">Saved</span>}
             </div>
-            {applicant.notesSummary && (
+            {SHOW_AI_SUMMARY && applicant.notesSummary && (
               <div className="notes-summary">
                 <div className="notes-summary-label">AI Summary</div>
                 <p className="notes-summary-text">{applicant.notesSummary}</p>
               </div>
             )}
-            <textarea
-              className="notes-textarea"
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              placeholder="Add notes about this applicant..."
-              rows={8}
-            />
-            <button
-              className="notes-save"
-              onClick={saveNote}
-              disabled={savingNote || noteText === applicant.notes}
-            >
-              {savingNote ? 'Saving...' : 'Save Notes'}
-            </button>
+            {(() => {
+              const dayNotes = parseNotesByDay(applicant.notes);
+              const days = Object.keys(dayNotes).map(Number).sort((a, b) => a - b);
+              if (days.length === 0) {
+                return <p className="notes-empty">No notes yet.</p>;
+              }
+              const displayDay = days.includes(activeDay) ? activeDay : days[0];
+              return (
+                <>
+                  <div className="notes-day-tabs">
+                    {days.map(day => (
+                      <button
+                        key={day}
+                        className={`notes-day-tab ${displayDay === day ? 'active' : ''}`}
+                        onClick={() => setActiveDay(day)}
+                      >
+                        Day {day}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="notes-day-content">
+                    {dayNotes[displayDay]?.map((note, idx) => (
+                      <div key={idx} className="notes-entry">
+                        {note.split('\n').map((line, lineIdx) => (
+                          <div key={lineIdx}>{line}</div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
+            {isAdmin && (
+              <>
+                <div className="notes-edit-divider" />
+                <textarea
+                  className="notes-textarea"
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="Edit raw notes..."
+                  rows={6}
+                />
+                <button
+                  className="notes-save"
+                  onClick={saveNote}
+                  disabled={savingNote || noteText === applicant.notes}
+                >
+                  {savingNote ? 'Saving...' : 'Save Notes'}
+                </button>
+              </>
+            )}
           </div>
+
+          {/* PM Notes — admin only */}
+          {isAdmin && (
+            <div className="profile-card card-full pm-notes-card">
+              <div className="notes-header">
+                <h2 className="card-title">PM Notes</h2>
+                {pmNoteSaved && <span className="note-saved-badge">Saved</span>}
+              </div>
+              <textarea
+                className="notes-textarea"
+                value={pmNoteText}
+                onChange={(e) => setPmNoteText(e.target.value)}
+                placeholder="Add internal PM notes about this applicant..."
+                rows={5}
+              />
+              <button
+                className="notes-save"
+                onClick={savePmNote}
+                disabled={savingPmNote || pmNoteText === applicant.pm_notes}
+              >
+                {savingPmNote ? 'Saving...' : 'Save PM Notes'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

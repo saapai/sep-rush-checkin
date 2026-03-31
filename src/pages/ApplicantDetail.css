@@ -33,6 +33,43 @@
   padding: 1.25rem 0;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+}
+
+.profile-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.profile-nav-btn {
+  padding: 0.35rem 0.9rem;
+  background: white;
+  border: 1.5px solid #e2e2e2;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.profile-nav-btn:hover:not(:disabled) {
+  border-color: #111;
+  color: #111;
+}
+
+.profile-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.profile-nav-count {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #aaa;
+  min-width: 3rem;
+  text-align: center;
 }
 
 .profile-back {
@@ -351,6 +388,76 @@
 .notes-save:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+/* Notes day tabs */
+.notes-day-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0;
+  padding: 0.4rem;
+  background: #f8f8fa;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.notes-day-tab {
+  padding: 0.45rem 1rem;
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 7px;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.notes-day-tab:hover { color: #555; background: rgba(0,0,0,0.04); }
+
+.notes-day-tab.active {
+  background: #111;
+  color: white;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+
+.notes-day-content {
+  margin-top: 0.75rem;
+}
+
+.notes-entry {
+  padding: 0.65rem 0;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: #333;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.notes-entry:last-child { border-bottom: none; }
+
+.notes-entry > div { margin: 0.1rem 0; }
+
+.notes-empty {
+  color: #bbb;
+  font-size: 0.9rem;
+  margin: 0.75rem 0 0;
+}
+
+.notes-edit-divider {
+  border: none;
+  border-top: 1.5px dashed #e8e8e8;
+  margin: 1.25rem 0 0;
+}
+
+/* PM Notes card */
+.pm-notes-card {
+  border: 1.5px solid #e0e7ff;
+  background: #fafbff;
+}
+
+.pm-notes-card .card-title {
+  color: #6366f1;
 }
 
 /* Responsive */
