@@ -242,11 +242,21 @@ export default async function handler(req, res) {
       let messages;
       try {
         messages = await getMessages(phone);
+        l(`  ${memberName}: ${messages.length} msgs`);
       } catch (e) {
-        l(`ERROR fetching ${memberName}: ${e.message}`);
+        l(`  ERROR ${memberName}: ${e.message}`);
         continue;
       }
-      if (messages.length === 0) continue;
+      if (messages.length === 0) {
+        // Try a test fetch to see raw response
+        try {
+          const test = await sbAPI('GET', `/api/v2/messages?number=${encodeURIComponent(phone)}&limit=1`);
+          l(`  ${memberName}: 0 msgs (raw: ${JSON.stringify(test).substring(0, 100)})`);
+        } catch (e2) {
+          l(`  ${memberName}: 0 msgs (test error: ${e2.message})`);
+        }
+        continue;
+      }
 
       l(`--- ${memberName} (${messages.length} msgs) ---`);
 
