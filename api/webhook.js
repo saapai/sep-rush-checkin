@@ -396,23 +396,44 @@ function buildApplicantSummary(applicants) {
   let summary = `CURRENT RUSH DATA (${total} total applicants):\n`;
   summary += `Attendance — D1: ${d1}, D2: ${d2}, D3: ${d3}, D4: ${d4}, D5: ${d5}\n`;
   summary += `Statuses — ${statusStr}\n\n`;
-  summary += `APPLICANT DETAILS:\n`;
-  applicants.sort((a, b) => a.name.localeCompare(b.name)).forEach(a => {
-    const days = [a.day_1, a.day_2, a.day_3, a.day_4, a.day_5];
-    const attended = days.filter(Boolean).length;
-    const dayList = days.map((d, i) => d ? `D${i+1}` : '').filter(Boolean).join(',');
-    let line = `- ${a.name}`;
-    if (a.year) line += ` (${a.year})`;
-    line += ` | ${a.status || 'Unknown'} | ${attended}/5 days`;
-    if (dayList) line += ` [${dayList}]`;
-    if (a.elo) line += ` | Elo:${a.elo}`;
-    if (a.social) line += ` Soc:${a.social}`;
-    if (a.prof) line += ` Prof:${a.prof}`;
-    if (a.weight) line += ` (${a.weight} ratings)`;
-    if (a.notesSummary) line += ` | Summary: "${a.notesSummary}"`;
-    else if (a.notes) line += ` | Notes: "${a.notes.substring(0, 100)}"`;
-    summary += line + '\n';
-  });
+
+  // Split applicants: those with notes/scores get detailed entries, rest get compact list
+  const withData = applicants.filter(a => a.notes || a.elo || a.weight);
+  const withoutData = applicants.filter(a => !a.notes && !a.elo && !a.weight);
+
+  if (withData.length > 0) {
+    summary += `APPLICANTS WITH NOTES/SCORES:\n`;
+    withData.sort((a, b) => a.name.localeCompare(b.name)).forEach(a => {
+      const days = [a.day_1, a.day_2, a.day_3, a.day_4, a.day_5];
+      const dayList = days.map((d, i) => d ? `D${i+1}` : '').filter(Boolean).join(',');
+      let line = `\n${a.name}`;
+      if (a.year) line += ` (${a.year})`;
+      if (a.email) line += ` | ${a.email}`;
+      line += ` | ${a.status || 'Unknown'}`;
+      if (dayList) line += ` | Days: ${dayList}`;
+      line += ` | Photo: ${a.photoUrl ? 'yes' : 'no'}`;
+      if (a.weight) line += `\n  Scores: ${a.social.toFixed?.(1) ?? a.social}s / ${a.prof.toFixed?.(1) ?? a.prof}p / ${a.elo.toFixed?.(1) ?? a.elo} elo (${a.weight} ratings)`;
+      if (a.notesSummary) line += `\n  Summary: ${a.notesSummary}`;
+      if (a.notes) line += `\n  Raw notes:\n  ${a.notes.replace(/\n/g, '\n  ')}`;
+      summary += line + '\n';
+    });
+  }
+
+  if (withoutData.length > 0) {
+    summary += `\nALL OTHER APPLICANTS:\n`;
+    withoutData.sort((a, b) => a.name.localeCompare(b.name)).forEach(a => {
+      const days = [a.day_1, a.day_2, a.day_3, a.day_4, a.day_5];
+      const dayList = days.map((d, i) => d ? `D${i+1}` : '').filter(Boolean).join(',');
+      let line = `- ${a.name}`;
+      if (a.year) line += ` (${a.year})`;
+      if (a.email) line += ` | ${a.email}`;
+      line += ` | ${a.status || 'Unknown'}`;
+      if (dayList) line += ` | ${dayList}`;
+      if (a.photoUrl) line += ` | has photo`;
+      summary += line + '\n';
+    });
+  }
+
   return summary;
 }
 
@@ -460,6 +481,9 @@ FORMATTING RULES (CRITICAL):
 FIRST MESSAGE BEHAVIOR:
 - If there is NO conversation history (first time texting), introduce yourself and give today's rush info.
 - You already know who's texting from the member directory — greet them by name if available.
+
+DATA ACCESS:
+The applicant data below is LIVE from Airtable — fetched fresh every message. It includes full raw notes (with member attribution), AI summaries, scores, attendance, emails, and photo status. You can answer ANY query about ANY applicant using this data. When asked about notes, quote the raw notes with attribution (who said what). When asked about scores, use the real numbers. The data is the single source of truth.
 
 NOTES & SCORING SYSTEM:
 Members text notes about rushees → you save them to Airtable with tags → then ask for ratings.
