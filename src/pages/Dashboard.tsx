@@ -30,6 +30,10 @@ interface Applicant {
   social: number;
   prof: number;
   weight: number;
+  major?: string;
+  essay_1?: string;
+  essay_2?: string;
+  essay_3?: string;
 }
 
 interface DashboardProps {
@@ -48,11 +52,25 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
   const [showSlideshow, setShowSlideshow] = useState(false);
   const [slideshowStartIndex, setSlideshowStartIndex] = useState(0);
   const [showPresentModal, setShowPresentModal] = useState(false);
-  const [slideStatuses, setSlideStatuses] = useState<string[]>([]);
-  const [slideDays, setSlideDays] = useState<number[]>([]);
-  const [slideDayMode, setSlideDayMode] = useState<'any' | 'all'>('any');
+  const [presentNames, setPresentNames] = useState<string[]>([]);
+  const [presentNamesText, setPresentNamesText] = useState('');
 
   const isAdmin = sessionStorage.getItem('dash_auth') === 'admin';
+
+  // Restore presentation session
+  useEffect(() => {
+    const session = sessionStorage.getItem('present_session');
+    if (session) {
+      try {
+        const parsed = JSON.parse(session);
+        if (parsed.names?.length > 0) {
+          setPresentNames(parsed.names);
+          const idx = parsed.currentIndex || 0;
+          setSlideshowStartIndex(Math.min(idx, parsed.names.length - 1));
+        }
+      } catch { /* ignore */ }
+    }
+  }, []);
 
   useEffect(() => {
     const auth = sessionStorage.getItem('dash_auth');
@@ -97,6 +115,10 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
           social: (r.get('social') as number) || 0,
           prof: (r.get('prof') as number) || 0,
           weight: (r.get('weight') as number) || 0,
+          major: (r.get('major') as string) || '',
+          essay_1: (r.get('essay_1') as string) || '',
+          essay_2: (r.get('essay_2') as string) || '',
+          essay_3: (r.get('essay_3') as string) || '',
         }))
         .filter(a => a.name.trim() !== '')
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -135,21 +157,53 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
 
   const statuses = [...new Set(applicants.map(a => a.status).filter(Boolean))];
 
-  const slideshowApplicants = filtered.filter(a => {
-    if (slideStatuses.length > 0 && !slideStatuses.includes(a.status)) return false;
-    if (slideDays.length > 0) {
-      const dayMap: Record<number, boolean> = { 1: a.day_1, 2: a.day_2, 3: a.day_3, 4: a.day_4, 5: a.day_5 };
-      const attended = slideDays.map(d => dayMap[d]);
-      if (slideDayMode === 'any' ? !attended.some(Boolean) : !attended.every(Boolean)) return false;
-    }
-    return true;
-  });
+  const handleStartPresentation = () => {
+    const names = presentNamesText
+      .split('\n')
+      .map(n => n.trim())
+      .filter(n => n.length > 0);
+    if (names.length === 0) return;
+    launchPresentation(names);
+  };
 
-  const toggleSlideStatus = (s: string) =>
-    setSlideStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+  const handleStartAll = () => {
+    // Sort by graduation year descending (freshmen/2029 first), then name within same year
+    const sorted = [...applicants].sort((a, b) => {
+      const yearA = a.year || 9999;
+      const yearB = b.year || 9999;
+      if (yearB !== yearA) return yearB - yearA; // higher grad year = lower class year (2029 = freshman)
+      return a.name.localeCompare(b.name);
+    });
+    const names = sorted.map(a => a.name);
+    launchPresentation(names);
+  };
 
-  const toggleSlideDay = (d: number) =>
-    setSlideDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  const launchPresentation = (names: string[]) => {
+    setPresentNames(names);
+    setSlideshowStartIndex(0);
+    sessionStorage.setItem('present_session', JSON.stringify({ names, currentIndex: 0 }));
+    setShowPresentModal(false);
+    setShowSlideshow(true);
+  };
+
+  const handleResumePresentation = () => {
+    const session = JSON.parse(sessionStorage.getItem('present_session') || '{}');
+    setSlideshowStartIndex(session.currentIndex || 0);
+    setShowSlideshow(true);
+  };
+
+  const handleUpdatePresentNames = (names: string[]) => {
+    setPresentNames(names);
+    const session = JSON.parse(sessionStorage.getItem('present_session') || '{}');
+    session.names = names;
+    sessionStorage.setItem('present_session', JSON.stringify(session));
+  };
+
+  const handleClearPresentation = () => {
+    setPresentNames([]);
+    setPresentNamesText('');
+    sessionStorage.removeItem('present_session');
+  };
 
   if (!authenticated) {
     return (
@@ -233,13 +287,16 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
         </select>
         <button className="dash-refresh" onClick={fetchApplicants}>Refresh</button>
         {isAdmin && (
-          <button
-            className="dash-present"
-            onClick={() => setShowPresentModal(true)}
-            disabled={filtered.length === 0}
-          >
-            Present
-          </button>
+          <>
+            {presentNames.length > 0 && (
+              <button className="dash-present dash-present-resume" onClick={handleResumePresentation}>
+                Resume ({presentNames.length})
+              </button>
+            )}
+            <button className="dash-present" onClick={() => setShowPresentModal(true)}>
+              {presentNames.length > 0 ? 'New Presentation' : 'Present'}
+            </button>
+          </>
         )}
       </div>
 
@@ -283,85 +340,58 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
       {showPresentModal && (
         <div className="present-modal-overlay" onClick={() => setShowPresentModal(false)}>
           <div className="present-modal" onClick={e => e.stopPropagation()}>
-            <h2 className="present-modal-title">Presentation Filters</h2>
+            <h2 className="present-modal-title">Start Presentation</h2>
+            <p className="present-modal-desc">Paste names below, one per line. They'll be presented in this order.</p>
 
-            <div className="present-modal-section">
-              <div className="present-modal-label">Status</div>
-              <div className="present-modal-chips">
-                {statuses.map(s => (
-                  <button
-                    key={s}
-                    className={`present-chip ${slideStatuses.includes(s) ? 'active' : ''}`}
-                    onClick={() => toggleSlideStatus(s)}
-                  >
-                    {s}
-                  </button>
-                ))}
-                {slideStatuses.length > 0 && (
-                  <button className="present-chip-clear" onClick={() => setSlideStatuses([])}>
-                    Clear
-                  </button>
-                )}
-              </div>
-              {slideStatuses.length === 0 && <p className="present-modal-hint">All statuses included</p>}
+            <textarea
+              className="present-modal-textarea"
+              placeholder={"Jane Doe\nJohn Smith\nAlex Chen"}
+              value={presentNamesText}
+              onChange={e => setPresentNamesText(e.target.value)}
+              autoFocus
+              rows={12}
+            />
+
+            <div className="present-modal-match-info">
+              {(() => {
+                const names = presentNamesText.split('\n').map(n => n.trim()).filter(n => n.length > 0);
+                const matched = names.filter(name => applicants.some(a => a.name.toLowerCase() === name.toLowerCase()));
+                const unmatched = names.filter(name => !applicants.some(a => a.name.toLowerCase() === name.toLowerCase()));
+                return (
+                  <>
+                    <span className="present-match-count">{matched.length} matched</span>
+                    {unmatched.length > 0 && (
+                      <span className="present-unmatch-count" title={unmatched.join(', ')}>
+                        {unmatched.length} not found
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
-            <div className="present-modal-section">
-              <div className="present-modal-label-row">
-                <div className="present-modal-label">Attendance</div>
-                {slideDays.length > 0 && (
-                  <div className="present-day-mode">
-                    <button
-                      className={`present-mode-btn ${slideDayMode === 'any' ? 'active' : ''}`}
-                      onClick={() => setSlideDayMode('any')}
-                    >
-                      Any
-                    </button>
-                    <button
-                      className={`present-mode-btn ${slideDayMode === 'all' ? 'active' : ''}`}
-                      onClick={() => setSlideDayMode('all')}
-                    >
-                      All
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div className="present-modal-chips">
-                {[1, 2, 3, 4, 5].map(d => (
-                  <button
-                    key={d}
-                    className={`present-chip ${slideDays.includes(d) ? 'active' : ''}`}
-                    onClick={() => toggleSlideDay(d)}
-                  >
-                    Day {d}
-                  </button>
-                ))}
-                {slideDays.length > 0 && (
-                  <button className="present-chip-clear" onClick={() => setSlideDays([])}>
-                    Clear
-                  </button>
-                )}
-              </div>
-              {slideDays.length === 0 && <p className="present-modal-hint">All attendance included</p>}
-              {slideDays.length > 0 && (
-                <p className="present-modal-hint">
-                  Attended <strong>{slideDayMode === 'any' ? 'any' : 'all'}</strong> of the selected days
-                </p>
-              )}
+            <div className="present-modal-divider">
+              <span>or</span>
             </div>
+
+            <button className="present-modal-all" onClick={handleStartAll}>
+              All Applicants by Class ({applicants.length})
+            </button>
 
             <div className="present-modal-footer">
-              <span className="present-modal-count">
-                {slideshowApplicants.length} applicant{slideshowApplicants.length !== 1 ? 's' : ''}
-              </span>
               <div className="present-modal-actions">
+                {presentNames.length > 0 && (
+                  <button className="present-modal-clear" onClick={handleClearPresentation}>
+                    Clear Saved
+                  </button>
+                )}
                 <button className="present-modal-cancel" onClick={() => setShowPresentModal(false)}>
                   Cancel
                 </button>
                 <button
                   className="present-modal-start"
-                  disabled={slideshowApplicants.length === 0}
-                  onClick={() => { setShowPresentModal(false); setSlideshowStartIndex(0); setShowSlideshow(true); }}
+                  disabled={presentNamesText.split('\n').filter(n => n.trim()).length === 0}
+                  onClick={handleStartPresentation}
                 >
                   Start &rarr;
                 </button>
@@ -371,11 +401,13 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
         </div>
       )}
 
-      {showSlideshow && slideshowApplicants.length > 0 && (
+      {showSlideshow && presentNames.length > 0 && (
         <Slideshow
-          applicants={slideshowApplicants}
+          applicants={applicants}
+          presentationNames={presentNames}
           startIndex={slideshowStartIndex}
           onClose={() => setShowSlideshow(false)}
+          onUpdateNames={handleUpdatePresentNames}
           isAdmin={isAdmin}
           navigate={navigate}
         />

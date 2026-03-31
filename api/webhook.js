@@ -142,6 +142,91 @@ async function getMessageHistory(number) {
   return { messages, hasOutbound };
 }
 
+// --- Application data helper ---
+
+const APP_TABLE = "Application Responses";
+
+async function getApplicationData(applicantName) {
+  const base = getBase();
+  try {
+    const records = await base(APP_TABLE).select({
+      filterByFormula: `{applicant_name} = "${applicantName.replace(/"/g, '\\"')}"`,
+      maxRecords: 1,
+    }).all();
+    if (records.length === 0) return null;
+    const r = records[0];
+    return {
+      major: (r.get('major_minor')) || '',
+      whySep: (r.get('why_sep')) || '',
+      drive: (r.get('drive')) || '',
+      describeYourself: (r.get('describe_yourself')) || '',
+      gpa: r.get('GPA') || null,
+      portfolio: (r.get('Portfolio, Website, Github, etc.')) || '',
+      phone: (r.get('Phone Number')) || '',
+    };
+  } catch (e) {
+    console.error('Application fetch error:', e.message);
+    return null;
+  }
+}
+
+const SUMMARY_SYSTEM_PROMPT = `You are summarizing information about a rush applicant for a business fraternity. Write a factual, unbiased summary in 3-5 sentences, plain text only.
+
+Rules:
+- Do NOT give opinions, judgments, or sentiment analysis
+- Do NOT infer personality traits or evaluate "fit"
+- Do NOT flag anything as a "red flag" or "standout"
+- Simply summarize WHO this person is (year, major, background) and WHAT members observed or discussed with them
+- Attribute observations to the members who made them when relevant (e.g. "Tyler noted that...")
+- If application data is available, include their major, what they wrote about, and any relevant experience
+- Be factual and neutral throughout`;
+
+async function generateSummary(applicantName, notes, rushRecord) {
+  const appData = await getApplicationData(applicantName);
+
+  let context = `Notes from members about ${applicantName}:\n\n${notes}`;
+
+  // Pull essays from the Rush table if available
+  if (rushRecord) {
+    const essay1 = rushRecord.essay_1 || rushRecord.essay1 || '';
+    const essay2 = rushRecord.essay_2 || rushRecord.essay2 || '';
+    const essay3 = rushRecord.essay_3 || rushRecord.essay3 || '';
+    if (essay1 || essay2 || essay3) {
+      context += `\n\nEssay responses:`;
+      if (essay1) context += `\nEssay 1: ${essay1}`;
+      if (essay2) context += `\nEssay 2: ${essay2}`;
+      if (essay3) context += `\nEssay 3: ${essay3}`;
+    }
+    if (rushRecord.major) context += `\nMajor (from rush record): ${rushRecord.major}`;
+  }
+
+  if (appData) {
+    context += `\n\nApplication data:`;
+    if (appData.major) context += `\nMajor: ${appData.major}`;
+    if (appData.gpa) context += `\nGPA: ${appData.gpa}`;
+    if (appData.whySep) context += `\nWhy SEP: ${appData.whySep}`;
+    if (appData.drive) context += `\nDrive: ${appData.drive}`;
+    if (appData.describeYourself) context += `\nSelf-description: ${appData.describeYourself}`;
+    if (appData.portfolio) context += `\nPortfolio/Links: ${appData.portfolio}`;
+  }
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+        { role: 'user', content: context },
+      ],
+      max_tokens: 250,
+      temperature: 0.2,
+    });
+    return completion.choices[0]?.message?.content || '';
+  } catch (e) {
+    console.error('Summary error:', e.message);
+    return '';
+  }
+}
+
 // --- Airtable helpers ---
 
 async function getAllApplicants() {
@@ -162,6 +247,10 @@ async function getAllApplicants() {
       notes: (r.get('notes')) || '',
       notesSummary: (r.get('notes_summary')) || '',
       photoUrl: (r.get('photo')) || '',
+      major: (r.get('major')) || '',
+      essay_1: (r.get('essay_1')) || '',
+      essay_2: (r.get('essay_2')) || '',
+      essay_3: (r.get('essay_3')) || '',
     }))
     .filter(a => a.name.trim() !== '');
 }
@@ -231,26 +320,7 @@ async function appendNotes(applicant, memberName, newNotes) {
   const entry = `[${memberName} — ${dayLabel}]: ${newNotes}`;
   const updatedNotes = applicant.notes ? `${applicant.notes}\n${entry}` : entry;
 
-  let summary = applicant.notesSummary || '';
-  try {
-    const sumCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: `Summarize rush notes about a college applicant for a business fraternity. 3-4 sentences max, plain text:
-- Overall sentiment (positive/mixed/negative)
-- Social fit (vibe, engagement, social skills)
-- Professional fit (substance, projects, ambition)
-- Standout details or red flags
-No markdown. Be direct.` },
-        { role: 'user', content: `Summarize notes about ${applicant.name}:\n\n${updatedNotes}` },
-      ],
-      max_tokens: 150,
-      temperature: 0.3,
-    });
-    summary = sumCompletion.choices[0]?.message?.content || summary;
-  } catch (e) {
-    console.error('Summary error:', e.message);
-  }
+  const summary = await generateSummary(applicant.name, updatedNotes, applicant);
 
   await base(TABLE).update(applicant.id, {
     notes: updatedNotes,
@@ -340,22 +410,7 @@ async function editMemberNotes(applicant, memberName, newContent) {
   filtered.push(entry);
   const updatedNotes = filtered.filter(l => l.trim()).join('\n');
 
-  // Regenerate summary
-  let summary = '';
-  try {
-    const sumCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: `Summarize rush notes about a college applicant for a business fraternity. 3-4 sentences max, plain text. No markdown.` },
-        { role: 'user', content: `Summarize notes about ${applicant.name}:\n\n${updatedNotes}` },
-      ],
-      max_tokens: 150,
-      temperature: 0.3,
-    });
-    summary = sumCompletion.choices[0]?.message?.content || '';
-  } catch (e) {
-    console.error('Summary error:', e.message);
-  }
+  const summary = await generateSummary(applicant.name, updatedNotes, applicant);
 
   await base(TABLE).update(applicant.id, { notes: updatedNotes, notes_summary: summary });
   return { updatedNotes, summary };
@@ -368,23 +423,7 @@ async function deleteMemberNotes(applicant, memberName) {
   const filtered = lines.filter(l => !l.startsWith(`[${memberName} `));
   const updatedNotes = filtered.filter(l => l.trim()).join('\n');
 
-  let summary = '';
-  if (updatedNotes.trim()) {
-    try {
-      const sumCompletion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: `Summarize rush notes about a college applicant for a business fraternity. 3-4 sentences max, plain text. No markdown.` },
-          { role: 'user', content: `Summarize notes about ${applicant.name}:\n\n${updatedNotes}` },
-        ],
-        max_tokens: 150,
-        temperature: 0.3,
-      });
-      summary = sumCompletion.choices[0]?.message?.content || '';
-    } catch (e) {
-      console.error('Summary error:', e.message);
-    }
-  }
+  const summary = updatedNotes.trim() ? await generateSummary(applicant.name, updatedNotes, applicant) : '';
 
   await base(TABLE).update(applicant.id, { notes: updatedNotes, notes_summary: summary });
   return { updatedNotes, summary };
