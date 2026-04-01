@@ -481,9 +481,27 @@
   transition: all 0.15s;
 }
 
-.present-modal-all:hover {
+.present-modal-all:hover:not(:disabled) {
   background: #111;
   border-color: #111;
+  color: white;
+}
+
+.present-modal-all:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.present-modal-applied {
+  background: #f0fdf4;
+  border-color: #22c55e;
+  color: #16a34a;
+  margin-bottom: 0.5rem;
+}
+
+.present-modal-applied:hover:not(:disabled) {
+  background: #22c55e;
+  border-color: #22c55e;
   color: white;
 }
 

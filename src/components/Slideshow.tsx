@@ -39,6 +39,7 @@ interface ApplicationData {
   describeYourself: string;
   portfolio: string;
   resume: { url: string; filename: string }[] | null;
+  applicationSummary: string;
 }
 
 interface SlideshowProps {
@@ -156,6 +157,7 @@ const Slideshow: React.FC<SlideshowProps> = ({
             describeYourself: (r.get('describe_yourself') as string) || '',
             portfolio: (r.get('Portfolio, Website, Github, etc.') as string) || '',
             resume: (r.get('resume') as { url: string; filename: string }[]) || null,
+            applicationSummary: (r.get('application_summary') as string) || '',
           });
         }
       } catch (e) { console.error('Error fetching application data:', e); }
@@ -447,7 +449,39 @@ ${scriptApplicants.join(',\n')}
                 ) : (
                   <span className="slide-action-btn slide-action-disabled">{appLoading ? 'Loading...' : 'No Application'}</span>
                 )}
-                {appData?.portfolio && <a href={appData.portfolio} target="_blank" rel="noopener noreferrer" className="slide-action-btn">Portfolio</a>}
+                {appData?.portfolio && (() => {
+                  // Parse portfolio field — may contain multiple URLs separated by commas, spaces, or newlines
+                  const urls = appData.portfolio
+                    .split(/[\s,;\n]+/)
+                    .map(s => s.trim())
+                    .filter(s => s.match(/^https?:\/\//i));
+                  if (urls.length === 0) {
+                    // Single non-URL value, show as-is
+                    return <span className="slide-action-btn slide-action-disabled">{appData.portfolio}</span>;
+                  }
+                  const getLabel = (url: string) => {
+                    try {
+                      const host = new URL(url).hostname.replace('www.', '');
+                      if (host.includes('github')) return 'GitHub';
+                      if (host.includes('linkedin')) return 'LinkedIn';
+                      if (host.includes('drive.google')) return 'Google Drive';
+                      if (host.includes('docs.google')) return 'Google Docs';
+                      if (host.includes('behance')) return 'Behance';
+                      if (host.includes('dribbble')) return 'Dribbble';
+                      if (host.includes('figma')) return 'Figma';
+                      if (host.includes('medium')) return 'Medium';
+                      if (host.includes('devpost')) return 'Devpost';
+                      if (host.includes('youtube') || host.includes('youtu.be')) return 'YouTube';
+                      // Use domain name
+                      return host.split('.')[0].charAt(0).toUpperCase() + host.split('.')[0].slice(1);
+                    } catch { return 'Link'; }
+                  };
+                  return urls.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="slide-action-btn">
+                      {getLabel(url)}
+                    </a>
+                  ));
+                })()}
               </div>
               {(applicant.essay_1 || applicant.essay_2 || applicant.essay_3) && (
                 <div className="slideshow-actions">
@@ -472,6 +506,12 @@ ${scriptApplicants.join(',\n')}
 
           {/* Right panel — notes */}
           <div className="slideshow-right">
+            {appData?.applicationSummary && (
+              <div className="slideshow-app-summary">
+                <div className="slideshow-app-summary-label">Application Summary</div>
+                <p className="slideshow-app-summary-text">{appData.applicationSummary}</p>
+              </div>
+            )}
             {isAdmin && applicant.pm_notes && (
               <div className="slideshow-pm-notes">
                 <div className="slideshow-pm-notes-label">PM Notes</div>

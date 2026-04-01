@@ -55,6 +55,7 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
   const [showPresentModal, setShowPresentModal] = useState(false);
   const [presentNames, setPresentNames] = useState<string[]>([]);
   const [presentNamesText, setPresentNamesText] = useState('');
+  const [appliedNames, setAppliedNames] = useState<string[]>([]);
 
   const isAdmin = sessionStorage.getItem('dash_auth') === 'admin';
 
@@ -145,8 +146,27 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
     }
   };
 
+  const fetchAppliedNames = async () => {
+    try {
+      const records = await base("Application Responses").select({
+        fields: ['applicant_name'],
+        maxRecords: 500,
+        filterByFormula: '{applicant_name} != ""',
+      }).all();
+      const names = [...new Set(
+        records.map(r => (r.get('applicant_name') as string) || '').filter(n => n.trim())
+      )];
+      setAppliedNames(names);
+    } catch (e) {
+      console.error('Error fetching applied names:', e);
+    }
+  };
+
   useEffect(() => {
-    if (authenticated) fetchApplicants();
+    if (authenticated) {
+      fetchApplicants();
+      fetchAppliedNames();
+    }
   }, [authenticated]);
 
   const getAttendanceCount = (a: Applicant) => [a.day_1, a.day_2, a.day_3, a.day_4, a.day_5].filter(Boolean).length;
@@ -188,17 +208,31 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
     const sorted = [...applicants].sort((a, b) => {
       const yearA = a.year || 9999;
       const yearB = b.year || 9999;
-      if (yearB !== yearA) return yearB - yearA; // higher grad year = lower class year (2029 = freshman)
+      if (yearB !== yearA) return yearB - yearA;
       return a.name.localeCompare(b.name);
     });
     const names = sorted.map(a => a.name);
     launchPresentation(names);
   };
 
-  const launchPresentation = (names: string[]) => {
+  const handleStartApplied = () => {
+    // Only applicants who submitted an application, sorted by class
+    const applied = applicants.filter(a =>
+      appliedNames.some(n => n.toLowerCase() === a.name.toLowerCase())
+    ).sort((a, b) => {
+      const yearA = a.year || 9999;
+      const yearB = b.year || 9999;
+      if (yearB !== yearA) return yearB - yearA;
+      return a.name.localeCompare(b.name);
+    });
+    const names = applied.map(a => a.name);
+    launchPresentation(names, true);
+  };
+
+  const launchPresentation = (names: string[], appliedMode = false) => {
     setPresentNames(names);
     setSlideshowStartIndex(0);
-    sessionStorage.setItem('present_session', JSON.stringify({ names, currentIndex: 0 }));
+    sessionStorage.setItem('present_session', JSON.stringify({ names, currentIndex: 0, appliedMode }));
     setShowPresentModal(false);
     setShowSlideshow(true);
   };
@@ -221,6 +255,45 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
     setPresentNamesText('');
     sessionStorage.removeItem('present_session');
   };
+
+  // Poll for new applications when slideshow is open in applied mode
+  useEffect(() => {
+    if (!showSlideshow) return;
+    const session = JSON.parse(sessionStorage.getItem('present_session') || '{}');
+    if (!session.appliedMode) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const records = await base("Application Responses").select({
+          fields: ['applicant_name'],
+          maxRecords: 500,
+          filterByFormula: '{applicant_name} != ""',
+        }).all();
+        const freshNames = [...new Set(
+          records.map(r => (r.get('applicant_name') as string) || '').filter(n => n.trim())
+        )];
+        setAppliedNames(freshNames);
+
+        const currentSession = JSON.parse(sessionStorage.getItem('present_session') || '{}');
+        const currentNames: string[] = currentSession.names || [];
+        const currentSet = new Set(currentNames.map(n => n.toLowerCase()));
+
+        const newNames = freshNames.filter(n => !currentSet.has(n.toLowerCase()));
+        if (newNames.length > 0) {
+          const updated = [...currentNames, ...newNames];
+          setPresentNames(updated);
+          currentSession.names = updated;
+          sessionStorage.setItem('present_session', JSON.stringify(currentSession));
+          // Also refetch main applicants so new people show up
+          fetchApplicants();
+        }
+      } catch (e) {
+        console.error('Poll error:', e);
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [showSlideshow]);
 
   if (!authenticated) {
     return (
@@ -392,6 +465,10 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
             <div className="present-modal-divider">
               <span>or</span>
             </div>
+
+            <button className="present-modal-all present-modal-applied" onClick={handleStartApplied} disabled={appliedNames.length === 0}>
+              Applied Only by Class ({appliedNames.length})
+            </button>
 
             <button className="present-modal-all" onClick={handleStartAll}>
               All Applicants by Class ({applicants.length})

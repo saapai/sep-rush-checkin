@@ -948,6 +948,33 @@
   color: #ef4444;
 }
 
+/* Application summary */
+.slideshow-app-summary {
+  background: #f0fdf4;
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.75rem;
+  border-left: 3px solid #22c55e;
+  flex-shrink: 0;
+}
+
+.slideshow-app-summary-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #16a34a;
+  margin-bottom: 0.35rem;
+}
+
+.slideshow-app-summary-text {
+  font-size: 0.88rem;
+  color: #333;
+  line-height: 1.6;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 .slideshow-no-notes {
   flex: 1;
   display: flex;
