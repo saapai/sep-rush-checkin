@@ -450,6 +450,44 @@
   margin: 1.25rem 0 0;
 }
 
+/* Major badge */
+.badge-major {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+/* Application card */
+.application-card {
+  border: 1.5px solid #e8e8e8;
+}
+
+.essays-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.essay-block {
+  padding: 0;
+}
+
+.essay-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #999;
+  margin-bottom: 0.4rem;
+}
+
+.essay-text {
+  font-size: 0.92rem;
+  line-height: 1.7;
+  color: #333;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 /* PM Notes card */
 .pm-notes-card {
   border: 1.5px solid #e0e7ff;
