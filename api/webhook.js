@@ -2,7 +2,7 @@ import Airtable from 'airtable';
 import OpenAI from 'openai';
 
 export const config = {
-  maxDuration: 60,
+  maxDuration: 300,
 };
 
 const TABLE = "Rush Spring '26";
@@ -23,13 +23,14 @@ const MEMBER_DIRECTORY = {
   '+16573637311': 'Sidney', '+13103673514': 'Joseph', '+14692741037': 'Natalie',
   '+19734376074': 'Armaan', '+14086685541': 'Edward', '+14698290081': 'Mahi',
   '+14244075337': 'Ruhaan', '+19967574792': 'Ruhaan', '+16508636891': 'Anusha',
-  '+13107808121': 'Charlotte', '+14249770401': 'Unknown', '+17606930594': 'Leilani',
+  '+13107808121': 'Charlotte', '+14249770401': 'Sam', '+17606930594': 'Leilani',
   '+13609314664': 'Simon', '+14087636262': 'Henry', '+18585275611': 'Tyler',
   '+16505186293': 'Sophia', '+13104866781': 'Anannya', '+16508899373': 'Ani',
   '+16503461001': 'Evan', '+19494669092': 'Maddie', '+16577240606': 'Darren',
   '+15596531293': 'Matthew', '+16264786106': 'Harrison', '+14152718271': 'Fiona',
   '+16196435215': 'Franco',
   '+17478888100': 'Eden',
+  '+16504714569': 'Cheryl',
 };
 
 function getMemberName(phoneNumber) {
@@ -749,37 +750,20 @@ Group 20: You're offered your dream job, but it's in a city where you know nobod
 
 // --- Extract notes from ALL tag formats GPT may produce ---
 // --- Split large note dumps into per-person sections ---
-function splitNotesByPerson(text, applicants) {
+// Split raw text into chunks at line boundaries (for GPT to parse names, not regex)
+function chunkRawText(text, maxChars = 3000) {
   const lines = text.split('\n');
-  const firstNames = new Set(applicants.map(a => a.name.toLowerCase().split(/\s+/)[0]));
-  const sections = [];
-  let currentName = null;
-  let currentNotes = [];
-
+  const chunks = [];
+  let current = '';
   for (const line of lines) {
-    const trimmed = line.replace(/^[\s\t•⁃\-]+/, '').trim();
-    if (!trimmed) continue;
-
-    const cleanLine = trimmed.replace(/[-—:.,!?]+$/, '').trim().toLowerCase();
-    const words = cleanLine.split(/\s+/);
-    const isNameLine = words.length <= 3 && firstNames.has(words[0]) && trimmed.length < 40;
-
-    if (isNameLine) {
-      if (currentName && currentNotes.length > 0) {
-        sections.push({ name: currentName, notes: currentNotes.join('\n').trim() });
-      }
-      currentName = trimmed.replace(/[-—:.,]+$/, '').trim();
-      currentNotes = [];
-    } else if (currentName) {
-      if (/^[—\-=_]{3,}$/.test(trimmed)) continue;
-      currentNotes.push(trimmed);
+    if (current.length + line.length + 1 > maxChars && current.length > 0) {
+      chunks.push(current.trim());
+      current = '';
     }
+    current += line + '\n';
   }
-  if (currentName && currentNotes.length > 0) {
-    sections.push({ name: currentName, notes: currentNotes.join('\n').trim() });
-  }
-
-  return sections;
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.length > 0 ? chunks : [text];
 }
 
 function extractAllNoteTags(text) {
@@ -860,10 +844,20 @@ async function processMessage({ content, sender, message_handle }) {
     const nameList = applicants.map(a => a.name).sort().join(', ');
 
     // Extract names mentioned in the user's message for targeted raw notes inclusion
-    const contentWords = content.toLowerCase().split(/[\s,;:.\-—]+/).filter(w => w.length >= 3);
-    const mentionedNames = contentWords.filter(w =>
-      applicants.some(a => a.name.toLowerCase().split(/\s+/)[0] === w || a.name.toLowerCase() === w)
-    );
+    // Use word-boundary matching to avoid false positives from note content
+    const contentLower = content.toLowerCase();
+    const mentionedNames = [];
+    const seenFirstNames = new Set();
+    for (const a of applicants) {
+      const firstName = a.name.toLowerCase().split(/\s+/)[0];
+      if (firstName.length < 2 || seenFirstNames.has(firstName)) continue;
+      // Match first name at word boundary (not as part of another word)
+      const pattern = new RegExp(`(?:^|[\\s,;:.\\-—•\\t(])${firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s,;:.\\-—•\\t)])`, 'i');
+      if (pattern.test(contentLower)) {
+        mentionedNames.push(firstName);
+        seenFirstNames.add(firstName);
+      }
+    }
 
     // --- Large note dump detection & chunking ---
     const CHUNK_THRESHOLD = 8;
@@ -873,45 +867,48 @@ async function processMessage({ content, sender, message_handle }) {
     if (mentionedNames.length > CHUNK_THRESHOLD) {
       console.log(`Large note dump detected: ${mentionedNames.length} names. Chunking...`);
 
-      const sections = splitNotesByPerson(content, applicants);
-      console.log(`Parsed ${sections.length} note sections`);
+      // Split raw text into ~3000 char chunks at line boundaries — GPT handles all name matching
+      const rawChunks = chunkRawText(content, 3000);
+      console.log(`Split into ${rawChunks.length} raw text chunks`);
 
-      const allTagOutputs = [];
-      for (let i = 0; i < sections.length; i += CHUNK_THRESHOLD) {
-        const chunk = sections.slice(i, i + CHUNK_THRESHOLD);
-        const chunkText = chunk.map(s => `${s.name}\n${s.notes}`).join('\n\n');
-        const chunkNames = chunk.map(s => s.name).join(', ');
-
-        const chunkPrompt = `You are a tag generator for a rush note-taking system. Your ONLY job is to output SAVE_NOTES tags (and SAVE_SCORES tags if scores are included).
+      const chunkTagPrompt = `You are a tag generator for a rush note-taking system. Your ONLY job is to output SAVE_NOTES tags (and SAVE_SCORES tags if scores are included).
 
 APPLICANT NAME LIST (use these EXACT full names in all tags):
 ${nameList}
 
-Match each first name below to the correct full name from the list above.
-
 RULES:
+- Parse the notes below. Each person's name appears as a header/label followed by their notes.
+- Match each name to the CORRECT full name from the applicant list above.
 - Output ONLY tags, nothing else. No visible text, no confirmations, no lists.
 - Use this format for each person: [SAVE_NOTES:Full Name]their notes here[/SAVE_NOTES]
 - If the notes include scores like "S 3 P 2" or "social 4 prof 5" or "4 3", also generate: [SAVE_SCORES:Full Name:social:prof]
-- Generate a tag for EVERY person below. Do NOT skip anyone.
-- If someone has no notes (just a name), skip them.
+- Generate a tag for EVERY person mentioned. Do NOT skip anyone.
 - Keep notes as-is — do NOT rewrite or summarize.
 
-Notes to process (${chunk.length} people: ${chunkNames}):
+NAME MATCHING:
+- If a first name matches ONLY ONE person in the list, use that person's full name. No ambiguity.
+- If a first name + last initial is given (e.g., "Sofia V"), match to the person whose last name starts with that letter.
+- Misspellings or close names should be matched to the closest person — do NOT flag these as ambiguous.
+- ONLY flag as ambiguous when JUST a first name is given AND multiple people share that exact first name (e.g., just "Sofia" when there's Sofia Valdez AND Sofia Llabres). Use: [AMBIGUOUS:Sofia|Sofia Valdez|Sofia Llabres]
+- When a last initial or any other distinguishing info is provided, ALWAYS resolve — never flag ambiguous.`;
 
-${chunkText}`;
-
+      const allTagOutputs = [];
+      for (let i = 0; i < rawChunks.length; i++) {
         try {
           const chunkCompletion = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
-            messages: [{ role: 'user', content: chunkPrompt }],
-            temperature: 0.3,
+            messages: [
+              { role: 'system', content: chunkTagPrompt },
+              { role: 'user', content: rawChunks[i] },
+            ],
+            temperature: 0.1,
+            max_tokens: 4096,
           });
           const chunkReply = chunkCompletion.choices[0]?.message?.content || '';
-          console.log(`Chunk ${Math.floor(i / CHUNK_THRESHOLD) + 1}: ${chunkReply.substring(0, 200)}`);
+          console.log(`Chunk ${i + 1}/${rawChunks.length}: ${chunkReply.substring(0, 200)}`);
           allTagOutputs.push(chunkReply);
         } catch (e) {
-          console.error(`Chunk ${Math.floor(i / CHUNK_THRESHOLD) + 1} error:`, e.message);
+          console.error(`Chunk ${i + 1} error:`, e.message);
         }
       }
 
@@ -943,6 +940,7 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
         model: 'gpt-4o-mini',
         messages,
         temperature: 0.7,
+        max_tokens: 4096,
       });
 
       reply = completion.choices[0]?.message?.content || "hmm something went wrong, try again?";
@@ -951,6 +949,40 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
     console.log(`GPT raw (${finishReason}): ${reply.substring(0, 500)}`);
     if (finishReason === 'length') {
       console.warn('WARNING: GPT output was truncated (max_tokens hit)');
+      // Count how many note tags we got vs how many names were mentioned
+      const gotTags = extractAllNoteTags(reply).length;
+      if (mentionedNames.length > 3 && gotTags < mentionedNames.length - 1) {
+        console.log(`Truncation lost notes: got ${gotTags} tags for ${mentionedNames.length} names. Re-processing full message as chunks...`);
+        const rawChunks = chunkRawText(content, 3000);
+        const allTagOutputs = [reply]; // keep whatever tags we already got
+        const recoveryPrompt = `You are a tag generator. Output ONLY SAVE_NOTES tags.
+
+APPLICANT NAME LIST (use EXACT full names):
+${nameList}
+
+RULES:
+- Parse the notes and match each person to the correct full name from the list.
+- Format: [SAVE_NOTES:Full Name]notes[/SAVE_NOTES]
+- Misspellings or close names: match to the closest person, do NOT flag ambiguous.
+- ONLY flag ambiguous when just a first name is given AND multiple people share that first name: [AMBIGUOUS:name|Full Name 1|Full Name 2]
+- When a last initial or any distinguishing info is given, ALWAYS resolve.
+- Tag EVERY person. Do NOT skip anyone. Keep notes verbatim.`;
+
+        for (const chunk of rawChunks) {
+          try {
+            const c = await openai.chat.completions.create({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: recoveryPrompt }, { role: 'user', content: chunk }],
+              temperature: 0.1,
+              max_tokens: 4096,
+            });
+            allTagOutputs.push(c.choices[0]?.message?.content || '');
+          } catch (e) {
+            console.error(`Truncation recovery error:`, e.message);
+          }
+        }
+        reply = allTagOutputs.join('\n') + '\ngot it';
+      }
     }
 
     // --- Parse ALL tags (handle ALL GPT output formats) ---
@@ -965,10 +997,11 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
     const allEditNotesMatches = [...reply.matchAll(/\[EDIT_MY_NOTES:(.+?)\]([\s\S]*?)\[\/EDIT_MY_NOTES\]/gi)];
     const allDeleteNotesMatches = [...reply.matchAll(/\[DELETE_MY_NOTES:(.+?)\]/gi)];
     const allDeleteScoresMatches = [...reply.matchAll(/\[DELETE_MY_SCORES:(.+?)\]/gi)];
+    const allAmbiguousMatches = [...reply.matchAll(/\[AMBIGUOUS:(.+?)\]/gi)];
     const clarifyMatch = reply.match(/\[CLARIFY_PHOTOS:(.+?)\]/i);
     const photoMatch = reply.match(/\[PHOTO:(.+?)\]/i);
 
-    console.log(`Tags: notes=${allNotesMatches.length} scores=${allScoresMatches.length} editNotes=${allEditNotesMatches.length} delNotes=${allDeleteNotesMatches.length} photo=${!!photoMatch} clarify=${!!clarifyMatch}`);
+    console.log(`Tags: notes=${allNotesMatches.length} scores=${allScoresMatches.length} editNotes=${allEditNotesMatches.length} delNotes=${allDeleteNotesMatches.length} ambiguous=${allAmbiguousMatches.length} photo=${!!photoMatch} clarify=${!!clarifyMatch}`);
 
     // Strip ALL tags from reply — if notes were saved, reply gets overwritten anyway
     if (reactMatch) reply = reply.replace(reactMatch[0], '').trim();
@@ -988,6 +1021,7 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
     if (photoMatch) reply = reply.replace(photoMatch[0], '').trim();
     reply = reply.replace(/\[SET_NAME:.+?\]/gi, '').trim();
     reply = reply.replace(/\[SCORE_SUMMARY\]/gi, '').trim();
+    reply = reply.replace(/\[AMBIGUOUS:[^\]]+\]/gi, '').trim();
 
     // --- Execute actions ---
     if (reactMatch && message_handle) {
@@ -999,27 +1033,67 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
     // Save notes — collect results for pretty confirmation
     const savedNotes = [];
     const failedNotes = [];
+
+    // Collect GPT-flagged ambiguous names (e.g., [AMBIGUOUS:Sofia|Sofia Valdez|Sofia Llabres])
+    for (const ambMatch of allAmbiguousMatches) {
+      const parts = ambMatch[1].split('|').map(p => p.trim());
+      const typed = parts[0] || 'unknown';
+      const options = parts.slice(1);
+      if (options.length >= 2) {
+        failedNotes.push(`${typed} (${options.join(' or ')}?)`);
+        console.log(`Ambiguous (GPT): "${typed}" → ${options.join(', ')}`);
+      }
+    }
+
+    // Pre-resolve all note matches first
+    const resolvedNotes = [];
     for (const notesMatch of allNotesMatches) {
       const notesName = notesMatch[1].trim();
       const notesContent = notesMatch[2].trim();
       if (!notesContent) continue;
       const matches = fuzzyMatch(applicants, notesName);
       if (matches.length === 1) {
-        try {
-          await appendNotes(matches[0], memberName, notesContent);
-          savedNotes.push(matches[0].name);
-          console.log(`Notes saved: ${matches[0].name} by ${memberName}`);
-        } catch (e) {
-          failedNotes.push(notesName);
-          console.error(`Notes err ${notesName}:`, e.message);
-        }
+        resolvedNotes.push({ applicant: matches[0], notesContent, notesName });
       } else if (matches.length > 1) {
         console.log(`Ambiguous note "${notesName}": ${matches.map(m => m.name).join(', ')}`);
-        // Don't send photos for note disambiguation — just add to failed with hint
         failedNotes.push(`${notesName} (${matches.map(m => m.name).join(' or ')}?)`);
       } else {
         failedNotes.push(notesName);
         console.log(`No match for note: "${notesName}"`);
+      }
+    }
+
+    // Save in parallel batches of 5
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < resolvedNotes.length; i += BATCH_SIZE) {
+      const batch = resolvedNotes.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(async ({ applicant, notesContent, notesName }) => {
+          await appendNotes(applicant, memberName, notesContent);
+          return { name: applicant.name, notesName };
+        })
+      );
+      for (let j = 0; j < results.length; j++) {
+        if (results[j].status === 'fulfilled') {
+          savedNotes.push(results[j].value.name);
+          console.log(`Notes saved: ${results[j].value.name} by ${memberName}`);
+        } else {
+          failedNotes.push(batch[j].notesName);
+          console.error(`Notes err ${batch[j].notesName}:`, results[j].reason?.message);
+        }
+      }
+    }
+
+    // Detect dropped names: people mentioned in the message but not in any tag
+    if (savedNotes.length > 0 && mentionedNames.length > savedNotes.length + failedNotes.length + 2) {
+      const savedFirstNames = new Set(savedNotes.map(n => n.toLowerCase().split(/\s+/)[0]));
+      const failedFirstNames = new Set(failedNotes.map(n => n.toLowerCase().split(/\s+/)[0]));
+      const droppedNames = mentionedNames.filter(n =>
+        !savedFirstNames.has(n) && !failedFirstNames.has(n)
+      );
+      if (droppedNames.length > 0) {
+        console.warn(`Dropped names detected (${droppedNames.length}): ${droppedNames.join(', ')}`);
+        failedNotes.push(...droppedNames.map(n => `${n} (might be missing)`));
       }
     }
 
