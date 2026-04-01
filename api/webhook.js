@@ -1379,6 +1379,32 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
+  // --- Project Lux query handler: "LUX: <question>" ---
+  const luxQueryMatch = content.trim().match(/^lux[:\s]+(.+)/i);
+  if (luxQueryMatch) {
+    const question = luxQueryMatch[1].trim();
+    console.log(`[LUX] Query from ${getMemberName(sender) || sender}: "${question}"`);
+    try {
+      await sendTyping(sender);
+      const queryRes = await fetch('https://www.duttapad.com/api/query-page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          ownerUsername: 'Amia',
+          secret: process.env.DUTTAPAD_JOIN_SECRET
+        })
+      });
+      const queryData = await queryRes.json();
+      const answer = queryData.answer || "I couldn't find an answer to that.";
+      await sendReply(sender, answer);
+    } catch (err) {
+      console.error(`[LUX] Query error:`, err.message);
+      await sendReply(sender, "Something went wrong querying Project Lux. Try again later.");
+    }
+    return res.status(200).json({ ok: true });
+  }
+
   const dedupKey = message_handle || `${sender}:${content}`;
   if (isHandleDuplicate(dedupKey)) {
     console.log(`Dedup skip: ${dedupKey}`);
