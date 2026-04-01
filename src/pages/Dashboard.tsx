@@ -34,6 +34,7 @@ interface Applicant {
   essay_1?: string;
   essay_2?: string;
   essay_3?: string;
+  createdAt?: string;
 }
 
 interface DashboardProps {
@@ -119,6 +120,7 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
           essay_1: (r.get('essay_1') as string) || '',
           essay_2: (r.get('essay_2') as string) || '',
           essay_3: (r.get('essay_3') as string) || '',
+          createdAt: (r.get('created_at') as string) || r._rawJson?.createdTime || '',
         }))
         .filter(a => a.name.trim() !== '')
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -151,6 +153,8 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
         case 'year-desc': return (b.year || 0) - (a.year || 0);
         case 'elo-desc': return b.elo - a.elo;
         case 'elo-asc': return a.elo - b.elo;
+        case 'added-asc': return (a.createdAt || '').localeCompare(b.createdAt || '');
+        case 'added-desc': return (b.createdAt || '').localeCompare(a.createdAt || '');
         default: return 0;
       }
     });
@@ -282,6 +286,8 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
           <option value="name-desc">Name Z-A</option>
           <option value="year-asc">Year (Oldest)</option>
           <option value="year-desc">Year (Newest)</option>
+          <option value="added-asc">Added (Oldest)</option>
+          <option value="added-desc">Added (Newest)</option>
           {isAdmin && <option value="elo-desc">Elo (Highest)</option>}
           {isAdmin && <option value="elo-asc">Elo (Lowest)</option>}
         </select>
