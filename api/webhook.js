@@ -2,7 +2,7 @@ import Airtable from 'airtable';
 import OpenAI from 'openai';
 
 export const config = {
-  maxDuration: 60,
+  maxDuration: 300,
 };
 
 const TABLE = "Rush Spring '26";
@@ -142,9 +142,28 @@ async function getMessageHistory(number) {
   return { messages, hasOutbound };
 }
 
-// --- Airtable helpers ---
+// --- Airtable cache + periodic sync ---
 
-async function getAllApplicants() {
+let cachedApplicants = null;
+let cacheTimestamp = 0;
+let cachedRankings = null;
+
+function isRushHours() {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const hour = now.getHours();
+  // Rush hours: 5 PM - 1 AM PT (events run 6:30 PM - midnight+)
+  return hour >= 17 || hour < 1;
+}
+
+function getCacheMaxAge() {
+  return isRushHours() ? 5 * 60 * 1000 : 30 * 60 * 1000; // 5 min rush, 30 min normal
+}
+
+function isCacheStale() {
+  return !cachedApplicants || (Date.now() - cacheTimestamp) > getCacheMaxAge();
+}
+
+async function fetchApplicantsFromAirtable() {
   const base = getBase();
   const records = await base(TABLE).select({ maxRecords: 1000 }).all();
   return records
@@ -164,6 +183,54 @@ async function getAllApplicants() {
       photoUrl: (r.get('photo')) || '',
     }))
     .filter(a => a.name.trim() !== '');
+}
+
+function buildRankings(applicants) {
+  const scored = applicants.filter(a => a.weight > 0);
+  if (scored.length === 0) return 'No scored applicants yet.';
+
+  const byElo = [...scored].sort((a, b) => b.elo - a.elo);
+  const bySocial = [...scored].sort((a, b) => b.social - a.social);
+  const byProf = [...scored].sort((a, b) => b.prof - a.prof);
+  const byWeight = [...scored].sort((a, b) => b.weight - a.weight);
+
+  function formatRank(list, field) {
+    return list.slice(0, 50).map((a, i) => {
+      const val = typeof a[field] === 'number' ? a[field].toFixed(1) : a[field];
+      return `${i + 1}. ${a.name} — ${val} (${a.weight} ratings)`;
+    }).join('\n');
+  }
+
+  return `PRE-SORTED RANKINGS (server-computed, use these EXACTLY when asked about rankings — do NOT re-sort or guess):
+
+TOP BY ELO (composite):
+${formatRank(byElo, 'elo')}
+
+TOP BY SOCIAL:
+${formatRank(bySocial, 'social')}
+
+TOP BY PROFESSIONAL:
+${formatRank(byProf, 'prof')}
+
+MOST RATED:
+${formatRank(byWeight, 'weight')}`;
+}
+
+async function getAllApplicants() {
+  if (!isCacheStale()) {
+    return cachedApplicants;
+  }
+  console.log(`[CACHE] Refreshing applicant data (${isRushHours() ? '5min rush' : '30min normal'} interval)`);
+  cachedApplicants = await fetchApplicantsFromAirtable();
+  cachedRankings = buildRankings(cachedApplicants);
+  cacheTimestamp = Date.now();
+  console.log(`[CACHE] Loaded ${cachedApplicants.length} applicants`);
+  return cachedApplicants;
+}
+
+// Force refresh cache after writes (notes/scores saved)
+function invalidateCache() {
+  cacheTimestamp = 0;
 }
 
 function fuzzyMatch(applicants, query) {
@@ -547,7 +614,10 @@ FIRST MESSAGE BEHAVIOR:
 - You already know who's texting from the member directory — greet them by name if available.
 
 DATA ACCESS:
-The applicant data below is LIVE from Airtable — fetched fresh every message. It includes full raw notes (with member attribution), AI summaries, scores, attendance, emails, and photo status. You can answer ANY query about ANY applicant using this data. When asked about notes, quote the raw notes with attribution (who said what). When asked about scores, use the real numbers. The data is the single source of truth.
+The applicant data below is from Airtable (synced every 5 min during rush, 30 min otherwise). It includes full raw notes (with member attribution), AI summaries, scores, attendance, emails, and photo status. You can answer ANY query about ANY applicant using this data. When asked about notes, quote the raw notes with attribution (who said what). When asked about scores, use the real numbers. The data is the single source of truth.
+
+RANKING & SORTING (CRITICAL):
+When asked to rank, sort, list top/bottom candidates, or compare scores — use the PRE-SORTED RANKINGS section below. These are computed server-side and are 100% accurate. Do NOT try to sort or rank applicants yourself — you WILL make mistakes. Copy the rankings exactly as provided. Never duplicate names in a ranking. If asked for "top 10 by social", just copy the first 10 from the TOP BY SOCIAL list.
 
 NOTES SYSTEM:
 Members text notes about rushees → you save them to Airtable with tags.
@@ -584,14 +654,14 @@ CRITICAL TAG RULES:
    [EDIT_MY_NOTES:Full Name Here]the replacement notes[/EDIT_MY_NOTES]
    This replaces only THEIR notes, not other members' notes.
 
-5. DELETING OWN NOTES: If a member wants to remove their notes:
+4. DELETING OWN NOTES: If a member wants to remove their notes:
    [DELETE_MY_NOTES:Full Name Here]
    This removes only THEIR notes, not other members' notes.
 
-6. DELETING OWN SCORES: If a member wants to remove their rating:
+5. DELETING OWN SCORES: If a member wants to remove their rating:
    [DELETE_MY_SCORES:Full Name Here]
 
-7. PERMISSION ENFORCEMENT:
+6. PERMISSION ENFORCEMENT:
    - A member can only edit/delete THEIR OWN notes and scores
    - If someone asks to change another member's notes, refuse: "you can only edit your own notes"
    - If someone asks to see raw notes, show all notes with attribution (who said what)
@@ -763,6 +833,45 @@ function extractAllNoteTags(text) {
   return results;
 }
 
+// --- Split large note dumps into per-person sections ---
+function splitNotesByPerson(text, applicants) {
+  const lines = text.split('\n');
+  const firstNames = new Set(applicants.map(a => a.name.toLowerCase().split(/\s+/)[0]));
+  // Also match "Firstname L" patterns (first name + last initial)
+  const sections = [];
+  let currentName = null;
+  let currentNotes = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Check if this line is a name header (a line that is just a name, possibly with punctuation)
+    const cleanLine = trimmed.replace(/[-—:.,!?]+$/, '').trim().toLowerCase();
+    const words = cleanLine.split(/\s+/);
+    const isNameLine = words.length <= 3 && firstNames.has(words[0]) && trimmed.length < 40;
+
+    if (isNameLine) {
+      // Save previous section
+      if (currentName && currentNotes.length > 0) {
+        sections.push({ name: currentName, notes: currentNotes.join('\n').trim() });
+      }
+      currentName = trimmed.replace(/[-—:.,]+$/, '').trim();
+      currentNotes = [];
+    } else if (currentName) {
+      // Skip separator lines
+      if (/^[—\-=_]{3,}$/.test(trimmed)) continue;
+      currentNotes.push(trimmed);
+    }
+  }
+  // Save last section
+  if (currentName && currentNotes.length > 0) {
+    sections.push({ name: currentName, notes: currentNotes.join('\n').trim() });
+  }
+
+  return sections;
+}
+
 // --- Handler ---
 
 async function processMessage({ content, sender, message_handle }) {
@@ -792,7 +901,65 @@ async function processMessage({ content, sender, message_handle }) {
       applicants.some(a => a.name.toLowerCase().split(/\s+/)[0] === w || a.name.toLowerCase() === w)
     );
 
-    const systemPrompt = `${RUSH_CONTEXT}
+    // --- Large note dump detection & chunking ---
+    // If >8 applicant names are mentioned, GPT chokes on generating tags for all of them.
+    // Split into chunks of 8 and make separate focused GPT calls.
+    const CHUNK_THRESHOLD = 8;
+    let reply;
+    let finishReason = 'stop';
+
+    if (mentionedNames.length > CHUNK_THRESHOLD) {
+      console.log(`Large note dump detected: ${mentionedNames.length} names. Chunking...`);
+
+      // Split the message into per-person sections by finding name boundaries
+      const sections = splitNotesByPerson(content, applicants);
+      console.log(`Parsed ${sections.length} note sections`);
+
+      // Process in chunks of CHUNK_THRESHOLD
+      const allTagOutputs = [];
+      for (let i = 0; i < sections.length; i += CHUNK_THRESHOLD) {
+        const chunk = sections.slice(i, i + CHUNK_THRESHOLD);
+        const chunkText = chunk.map(s => `${s.name}\n${s.notes}`).join('\n\n');
+        const chunkNames = chunk.map(s => s.name).join(', ');
+
+        const chunkPrompt = `You are a tag generator for a rush note-taking system. Your ONLY job is to output SAVE_NOTES tags (and SAVE_SCORES tags if scores are included).
+
+APPLICANT NAME LIST (use these EXACT full names in all tags):
+${nameList}
+
+Match each first name below to the correct full name from the list above.
+
+RULES:
+- Output ONLY tags, nothing else. No visible text, no confirmations, no lists.
+- Use this format for each person: [SAVE_NOTES:Full Name]their notes here[/SAVE_NOTES]
+- If the notes include scores like "S 3 P 2" or "social 4 prof 5" or "4 3", also generate: [SAVE_SCORES:Full Name:social:prof]
+- Generate a tag for EVERY person below. Do NOT skip anyone.
+- If someone has no notes (just a name), skip them.
+- Keep notes as-is — do NOT rewrite or summarize.
+
+Notes to process (${chunk.length} people: ${chunkNames}):
+
+${chunkText}`;
+
+        try {
+          const chunkCompletion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: chunkPrompt }],
+            temperature: 0.3,
+          });
+          const chunkReply = chunkCompletion.choices[0]?.message?.content || '';
+          console.log(`Chunk ${Math.floor(i / CHUNK_THRESHOLD) + 1}: ${chunkReply.substring(0, 200)}`);
+          allTagOutputs.push(chunkReply);
+        } catch (e) {
+          console.error(`Chunk ${Math.floor(i / CHUNK_THRESHOLD) + 1} error:`, e.message);
+        }
+      }
+
+      // Combine all tag outputs into one string for the tag parser
+      reply = allTagOutputs.join('\n') + '\ngot it';
+    } else {
+      // Normal flow — single GPT call
+      const systemPrompt = `${RUSH_CONTEXT}
 
 CURRENT TIME (Pacific): ${now}
 CURRENT RUSH DAY: Day ${currDay.num} — ${currDay.name}
@@ -802,26 +969,29 @@ ${isFirstMessage ? 'THIS IS THEIR FIRST MESSAGE EVER — follow FIRST MESSAGE BE
 APPLICANT NAME LIST (use these EXACT names in all tags):
 ${nameList}
 
-${buildApplicantSummary(applicants, mentionedNames)}`;
+${buildApplicantSummary(applicants, mentionedNames)}
 
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...history.slice(-15),
-    ];
+${cachedRankings || ''}`;
 
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.role !== 'user' || lastMsg.content !== content) {
-      messages.push({ role: 'user', content });
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        ...history.slice(-15),
+      ];
+
+      const lastMsg = messages[messages.length - 1];
+      if (!lastMsg || lastMsg.role !== 'user' || lastMsg.content !== content) {
+        messages.push({ role: 'user', content });
+      }
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages,
+        temperature: 0.7,
+      });
+
+      reply = completion.choices[0]?.message?.content || "hmm something went wrong, try again?";
+      finishReason = completion.choices[0]?.finish_reason || 'unknown';
     }
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages,
-      temperature: 0.7,
-    });
-
-    let reply = completion.choices[0]?.message?.content || "hmm something went wrong, try again?";
-    const finishReason = completion.choices[0]?.finish_reason || 'unknown';
     console.log(`GPT raw (${finishReason}): ${reply.substring(0, 500)}`);
     if (finishReason === 'length') {
       console.warn('WARNING: GPT output was truncated (max_tokens hit)');
@@ -870,30 +1040,42 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
 
     const memberName = knownName || sender;
 
-    // Save notes — collect results for pretty confirmation
+    // Save notes — collect results for pretty confirmation (parallel batches of 5)
     const savedNotes = [];
     const failedNotes = [];
+    const noteJobs = [];
     for (const notesMatch of allNotesMatches) {
       const notesName = notesMatch[1].trim();
       const notesContent = notesMatch[2].trim();
       if (!notesContent) continue;
       const matches = fuzzyMatch(applicants, notesName);
       if (matches.length === 1) {
-        try {
-          await appendNotes(matches[0], memberName, notesContent);
-          savedNotes.push(matches[0].name);
-          console.log(`Notes saved: ${matches[0].name} by ${memberName}`);
-        } catch (e) {
-          failedNotes.push(notesName);
-          console.error(`Notes err ${notesName}:`, e.message);
-        }
+        noteJobs.push({ applicant: matches[0], name: matches[0].name, content: notesContent });
       } else if (matches.length > 1) {
         console.log(`Ambiguous note "${notesName}": ${matches.map(m => m.name).join(', ')}`);
-        // Don't send photos for note disambiguation — just add to failed with hint
         failedNotes.push(`${notesName} (${matches.map(m => m.name).join(' or ')}?)`);
       } else {
         failedNotes.push(notesName);
         console.log(`No match for note: "${notesName}"`);
+      }
+    }
+    // Process notes in parallel batches of 5
+    for (let i = 0; i < noteJobs.length; i += 5) {
+      const batch = noteJobs.slice(i, i + 5);
+      const results = await Promise.allSettled(
+        batch.map(async (job) => {
+          await appendNotes(job.applicant, memberName, job.content);
+          return job.name;
+        })
+      );
+      for (let j = 0; j < results.length; j++) {
+        if (results[j].status === 'fulfilled') {
+          savedNotes.push(results[j].value);
+          console.log(`Notes saved: ${results[j].value} by ${memberName}`);
+        } else {
+          failedNotes.push(batch[j].name);
+          console.error(`Notes err ${batch[j].name}:`, results[j].reason?.message);
+        }
       }
     }
 
@@ -980,6 +1162,11 @@ ${buildApplicantSummary(applicants, mentionedNames)}`;
           console.error(`Delete scores err ${delName}:`, e.message);
         }
       }
+    }
+
+    // Invalidate cache after any writes so next message gets fresh data
+    if (savedNotes.length > 0 || scoreResults.length > 0 || allEditNotesMatches.length > 0 || allDeleteNotesMatches.length > 0 || allDeleteScoresMatches.length > 0) {
+      invalidateCache();
     }
 
     // Server-side score confirmation — overwrite GPT's guesses with real Airtable data
