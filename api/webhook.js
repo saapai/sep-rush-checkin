@@ -1354,6 +1354,31 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
+  // --- Project Lux join code handler ---
+  const trimmedContent = content.trim().toUpperCase();
+  if (trimmedContent === 'LUX' || trimmedContent === 'JOIN LUX') {
+    console.log(`[LUX] Join request from ${sender}`);
+    try {
+      const joinRes = await fetch('https://www.duttapad.com/api/editors/add-by-phone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: sender,
+          ownerUsername: 'Amia',
+          role: 'member',
+          secret: process.env.DUTTAPAD_JOIN_SECRET
+        })
+      });
+      const joinData = await joinRes.json();
+      console.log(`[LUX] Join result:`, joinData);
+      await sendReply(sender, "You've been added to Project Lux! View the page at duttapad.com/Amia");
+    } catch (err) {
+      console.error(`[LUX] Join error:`, err.message);
+      await sendReply(sender, "Something went wrong joining Project Lux. Try again or visit duttapad.com/Amia directly.");
+    }
+    return res.status(200).json({ ok: true });
+  }
+
   const dedupKey = message_handle || `${sender}:${content}`;
   if (isHandleDuplicate(dedupKey)) {
     console.log(`Dedup skip: ${dedupKey}`);
