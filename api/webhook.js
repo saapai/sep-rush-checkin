@@ -1405,26 +1405,38 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  // --- Amia's messages always route to Lux ---
+  // --- Amia's messages → add entry to Lux page ---
   const amiaPhone = '+15105072091';
   const senderNorm = sender.replace(/[\s\-\(\)]/g, '');
   if (senderNorm === amiaPhone || senderNorm.endsWith('5105072091')) {
     console.log(`[LUX] Amia message: "${content.substring(0, 200)}"`);
     try {
       await sendTyping(sender);
-      const queryRes = await fetch('https://www.duttapad.com/api/query-page', {
+      const addRes = await fetch('https://www.duttapad.com/api/entries/add-via-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: content.trim(),
+          text: content.trim(),
           ownerUsername: 'Amia',
           secret: process.env.DUTTAPAD_JOIN_SECRET
         })
       });
-      const queryData = await queryRes.json();
-      await sendReply(sender, queryData.answer || "Hmm, I couldn't find an answer to that on Project Lux.");
+      const data = await addRes.json();
+
+      if (data.action === 'ask') {
+        // AI needs clarification — ask Amia
+        await sendReply(sender, data.question);
+      } else if (data.action === 'appended') {
+        await sendReply(sender, `Added to "${data.page}" on Project Lux.`);
+      } else if (data.action === 'created') {
+        await sendReply(sender, `Created new page "${data.page}" on Project Lux.`);
+      } else if (data.error) {
+        await sendReply(sender, `Couldn't add that: ${data.error}`);
+      } else {
+        await sendReply(sender, "Added to Project Lux!");
+      }
     } catch (err) {
-      console.error(`[LUX] Amia query error:`, err.message);
+      console.error(`[LUX] Amia add-entry error:`, err.message);
       await sendReply(sender, "Something went wrong. Try again!");
     }
     return res.status(200).json({ ok: true });
