@@ -1,5 +1,20 @@
 const FROM_NUMBER = '+17139626862';
 
+// SEP Member directory — hardcoded phone numbers for reliable blast delivery
+const MEMBER_NUMBERS = [
+  '+13853687238', '+19175288704', '+14259790010', '+18588293100', '+13038450766',
+  '+18573964806', '+13105717011', '+13235091761', '+14088051435', '+13105008359',
+  '+18588374987', '+15083175184', '+19252971911', '+13108737200', '+14244660408',
+  '+15102196504', '+14086490769', '+18189299990', '+13105059297', '+14438963819',
+  '+13232706359', '+14259791041', '+13105971118', '+15058199928', '+18184398818',
+  '+19253369249', '+19259008019', '+14155359656', '+15108993006', '+19132938404',
+  '+16573637311', '+13103673514', '+14692741037', '+19734376074', '+14086685541',
+  '+14698290081', '+14244075337', '+19967574792', '+16508636891', '+13107808121',
+  '+17606930594', '+13609314664', '+14087636262', '+18585275611', '+16505186293',
+  '+13104866781', '+16508899373', '+16503461001', '+19494669092', '+16577240606',
+  '+15596531293', '+16264786106', '+14152718271', '+16196435215', '+17478888100',
+];
+
 async function sbAPI(method, path, body) {
   const opts = {
     method,
@@ -121,7 +136,8 @@ export default async function handler(req, res) {
 
     console.log(`Blasting for: ${eventToBlast.name}`);
 
-    const contacts = await getAllContacts();
+    // Use hardcoded member list (Sendblue contacts API is unreliable)
+    const contacts = MEMBER_NUMBERS;
     console.log(`Sending to ${contacts.length} contacts`);
 
     // Send to all contacts with small delays to avoid rate limiting
