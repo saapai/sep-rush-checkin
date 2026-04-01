@@ -77,7 +77,7 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
     setLoading(true);
     try {
       const records = await base(TABLE).select({ maxRecords: 1000 }).all();
-      const data: Applicant[] = records
+      const raw: Applicant[] = records
         .map(r => ({
           id: r.id,
           name: (r.get('applicant_name') as string) || '',
@@ -98,8 +98,21 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
           prof: (r.get('prof') as number) || 0,
           weight: (r.get('weight') as number) || 0,
         }))
-        .filter(a => a.name.trim() !== '')
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .filter(a => a.name.trim() !== '');
+      // Deduplicate by email — keep the record with the most data (notes, scores, photo)
+      const seen = new Map<string, Applicant>();
+      for (const a of raw) {
+        const key = a.email ? a.email.toLowerCase() : a.id;
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, a);
+        } else {
+          // Keep whichever has more data
+          const score = (x: Applicant) => (x.notes ? 1 : 0) + (x.photo ? 1 : 0) + x.weight + (x.day_1 ? 1 : 0) + (x.day_2 ? 1 : 0) + (x.day_3 ? 1 : 0) + (x.day_4 ? 1 : 0) + (x.day_5 ? 1 : 0);
+          if (score(a) > score(existing)) seen.set(key, a);
+        }
+      }
+      const data = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
       setApplicants(data);
     } catch (error) {
       console.error('Error fetching applicants:', error);

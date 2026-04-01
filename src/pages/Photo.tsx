@@ -123,6 +123,15 @@ const Photo: React.FC<PhotoProps> = ({ navigate }) => {
         if (nameOnly.length > 0) records = nameOnly;
       }
 
+      // Fallback: search by email to prevent duplicate records
+      if (records.length === 0 && emailToUse) {
+        const byEmail = await base(TABLE).select({
+          filterByFormula: `{email} = "${emailToUse.toLowerCase()}"`,
+          maxRecords: 1
+        }).all();
+        if (byEmail.length > 0) records = byEmail;
+      }
+
       if (records.length > 0) {
         const record = records[0];
         const photoField = record.get('photo');
@@ -210,14 +219,33 @@ const Photo: React.FC<PhotoProps> = ({ navigate }) => {
         if (email) updateData.email = email;
         await base(TABLE).update(applicantRecord.id, updateData);
       } else {
-        await base(TABLE).create({
-          applicant_name: rusheeName,
-          photo: publicUrl,
-          year: parseInt(selectedYear),
-          email: email,
-          status: 'Not Applied',
-          [currDay]: true
-        });
+        // Check by email one more time to avoid creating a duplicate
+        let existingByEmail: any = null;
+        if (email) {
+          const byEmail = await base(TABLE).select({
+            filterByFormula: `{email} = "${email.toLowerCase()}"`,
+            maxRecords: 1
+          }).all();
+          if (byEmail.length > 0) existingByEmail = byEmail[0];
+        }
+
+        if (existingByEmail) {
+          await base(TABLE).update(existingByEmail.id, {
+            applicant_name: rusheeName,
+            photo: publicUrl,
+            year: parseInt(selectedYear),
+            [currDay]: true
+          });
+        } else {
+          await base(TABLE).create({
+            applicant_name: rusheeName,
+            photo: publicUrl,
+            year: parseInt(selectedYear),
+            email: email,
+            status: 'Not Applied',
+            [currDay]: true
+          });
+        }
       }
       showSuccessAnimation(`${rusheeName} is checked in!`);
     } catch (error) {
