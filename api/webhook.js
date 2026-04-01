@@ -1045,6 +1045,16 @@ RULES:
       }
     }
 
+    // Build a map of first names that are shared by multiple applicants (e.g., Sofia, Jason, Caroline)
+    const firstNameCounts = {};
+    for (const a of applicants) {
+      const fn = a.name.toLowerCase().split(/\s+/)[0];
+      firstNameCounts[fn] = (firstNameCounts[fn] || 0) + 1;
+    }
+    const ambiguousFirstNames = new Set(
+      Object.entries(firstNameCounts).filter(([, count]) => count > 1).map(([fn]) => fn)
+    );
+
     // Pre-resolve all note matches first
     const resolvedNotes = [];
     for (const notesMatch of allNotesMatches) {
@@ -1053,6 +1063,35 @@ RULES:
       if (!notesContent) continue;
       const matches = fuzzyMatch(applicants, notesName);
       if (matches.length === 1) {
+        // Server-side disambiguation check: did the user actually type enough to distinguish?
+        // If the first name is shared by multiple applicants, check if the user's raw message
+        // contains a last name or initial — if not, GPT just guessed and we should ask.
+        const firstName = matches[0].name.toLowerCase().split(/\s+/)[0];
+        if (ambiguousFirstNames.has(firstName)) {
+          // Check if the user's message contains ANY distinguishing info beyond just the first name
+          // (e.g., last name, last initial, full name)
+          const lastName = matches[0].name.toLowerCase().split(/\s+/).slice(1).join(' ');
+          const lastInitial = lastName ? lastName[0] : '';
+          const contentLow = content.toLowerCase();
+
+          // Look for: full name, "firstName lastName", "firstName L", "firstName L."
+          const hasFullName = contentLow.includes(matches[0].name.toLowerCase());
+          const hasLastInitial = lastInitial && new RegExp(
+            `${firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+${lastInitial}[\\s.,:\\-—\\n]`,
+            'i'
+          ).test(contentLow + '\n'); // add newline so end-of-string matches
+          const hasLastName = lastName && contentLow.includes(lastName);
+
+          if (!hasFullName && !hasLastInitial && !hasLastName) {
+            // User just typed the first name — GPT guessed wrong, ask for clarification
+            const sameFirstName = applicants.filter(a =>
+              a.name.toLowerCase().split(/\s+/)[0] === firstName
+            );
+            console.log(`Server-side disambig: "${notesName}" → GPT picked ${matches[0].name} but user only typed "${firstName}" (${sameFirstName.length} matches)`);
+            failedNotes.push(`${firstName} (${sameFirstName.map(a => a.name).join(' or ')}?)`);
+            continue;
+          }
+        }
         resolvedNotes.push({ applicant: matches[0], notesContent, notesName });
       } else if (matches.length > 1) {
         console.log(`Ambiguous note "${notesName}": ${matches.map(m => m.name).join(', ')}`);
@@ -1098,15 +1137,26 @@ RULES:
     }
 
     // Build elegant confirmation for saved notes (overrides GPT reply)
-    if (savedNotes.length > 0) {
-      let prettyReply = `locked in ${savedNotes.length} ${savedNotes.length > 1 ? 'rushees' : 'rushee'}\n\n`;
-      savedNotes.forEach(name => {
-        prettyReply += `${name}\n`;
-      });
-      if (failedNotes.length > 0) {
-        prettyReply += `\ncouldn't match: ${failedNotes.join(', ')}`;
+    if (savedNotes.length > 0 || failedNotes.length > 0) {
+      let prettyReply = '';
+      if (savedNotes.length > 0) {
+        prettyReply += `locked in ${savedNotes.length} ${savedNotes.length > 1 ? 'rushees' : 'rushee'}\n\n`;
+        savedNotes.forEach(name => {
+          prettyReply += `${name}\n`;
+        });
       }
-      reply = prettyReply;
+      if (failedNotes.length > 0) {
+        // Check if any are disambiguation (contain "or")
+        const disambig = failedNotes.filter(n => n.includes(' or '));
+        const other = failedNotes.filter(n => !n.includes(' or '));
+        if (disambig.length > 0) {
+          prettyReply += `\nwhich one?\n${disambig.join('\n')}`;
+        }
+        if (other.length > 0) {
+          prettyReply += `\ncouldn't match: ${other.join(', ')}`;
+        }
+      }
+      if (prettyReply.trim()) reply = prettyReply;
     }
 
     // Save scores if user proactively includes them (but bot never asks for ratings)
