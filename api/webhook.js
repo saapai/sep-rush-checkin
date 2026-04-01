@@ -748,6 +748,40 @@ Group 19: What's on your bucket list for this year? / What's one event in your l
 Group 20: You're offered your dream job, but it's in a city where you know nobody. Do you take it? / If you could go back and give yourself one piece of advice at the start of college, what would it be?`;
 
 // --- Extract notes from ALL tag formats GPT may produce ---
+// --- Split large note dumps into per-person sections ---
+function splitNotesByPerson(text, applicants) {
+  const lines = text.split('\n');
+  const firstNames = new Set(applicants.map(a => a.name.toLowerCase().split(/\s+/)[0]));
+  const sections = [];
+  let currentName = null;
+  let currentNotes = [];
+
+  for (const line of lines) {
+    const trimmed = line.replace(/^[\s\t•⁃\-]+/, '').trim();
+    if (!trimmed) continue;
+
+    const cleanLine = trimmed.replace(/[-—:.,!?]+$/, '').trim().toLowerCase();
+    const words = cleanLine.split(/\s+/);
+    const isNameLine = words.length <= 3 && firstNames.has(words[0]) && trimmed.length < 40;
+
+    if (isNameLine) {
+      if (currentName && currentNotes.length > 0) {
+        sections.push({ name: currentName, notes: currentNotes.join('\n').trim() });
+      }
+      currentName = trimmed.replace(/[-—:.,]+$/, '').trim();
+      currentNotes = [];
+    } else if (currentName) {
+      if (/^[—\-=_]{3,}$/.test(trimmed)) continue;
+      currentNotes.push(trimmed);
+    }
+  }
+  if (currentName && currentNotes.length > 0) {
+    sections.push({ name: currentName, notes: currentNotes.join('\n').trim() });
+  }
+
+  return sections;
+}
+
 function extractAllNoteTags(text) {
   const results = [];
   const seen = new Set();
@@ -831,7 +865,59 @@ async function processMessage({ content, sender, message_handle }) {
       applicants.some(a => a.name.toLowerCase().split(/\s+/)[0] === w || a.name.toLowerCase() === w)
     );
 
-    const systemPrompt = `${RUSH_CONTEXT}
+    // --- Large note dump detection & chunking ---
+    const CHUNK_THRESHOLD = 8;
+    let reply;
+    let finishReason = 'stop';
+
+    if (mentionedNames.length > CHUNK_THRESHOLD) {
+      console.log(`Large note dump detected: ${mentionedNames.length} names. Chunking...`);
+
+      const sections = splitNotesByPerson(content, applicants);
+      console.log(`Parsed ${sections.length} note sections`);
+
+      const allTagOutputs = [];
+      for (let i = 0; i < sections.length; i += CHUNK_THRESHOLD) {
+        const chunk = sections.slice(i, i + CHUNK_THRESHOLD);
+        const chunkText = chunk.map(s => `${s.name}\n${s.notes}`).join('\n\n');
+        const chunkNames = chunk.map(s => s.name).join(', ');
+
+        const chunkPrompt = `You are a tag generator for a rush note-taking system. Your ONLY job is to output SAVE_NOTES tags (and SAVE_SCORES tags if scores are included).
+
+APPLICANT NAME LIST (use these EXACT full names in all tags):
+${nameList}
+
+Match each first name below to the correct full name from the list above.
+
+RULES:
+- Output ONLY tags, nothing else. No visible text, no confirmations, no lists.
+- Use this format for each person: [SAVE_NOTES:Full Name]their notes here[/SAVE_NOTES]
+- If the notes include scores like "S 3 P 2" or "social 4 prof 5" or "4 3", also generate: [SAVE_SCORES:Full Name:social:prof]
+- Generate a tag for EVERY person below. Do NOT skip anyone.
+- If someone has no notes (just a name), skip them.
+- Keep notes as-is — do NOT rewrite or summarize.
+
+Notes to process (${chunk.length} people: ${chunkNames}):
+
+${chunkText}`;
+
+        try {
+          const chunkCompletion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: chunkPrompt }],
+            temperature: 0.3,
+          });
+          const chunkReply = chunkCompletion.choices[0]?.message?.content || '';
+          console.log(`Chunk ${Math.floor(i / CHUNK_THRESHOLD) + 1}: ${chunkReply.substring(0, 200)}`);
+          allTagOutputs.push(chunkReply);
+        } catch (e) {
+          console.error(`Chunk ${Math.floor(i / CHUNK_THRESHOLD) + 1} error:`, e.message);
+        }
+      }
+
+      reply = allTagOutputs.join('\n') + '\ngot it';
+    } else {
+      const systemPrompt = `${RUSH_CONTEXT}
 
 CURRENT TIME (Pacific): ${now}
 CURRENT RUSH DAY: Day ${currDay.num} — ${currDay.name}
@@ -843,24 +929,25 @@ ${nameList}
 
 ${buildApplicantSummary(applicants, mentionedNames)}`;
 
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...history.slice(-15),
-    ];
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        ...history.slice(-15),
+      ];
 
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.role !== 'user' || lastMsg.content !== content) {
-      messages.push({ role: 'user', content });
+      const lastMsg = messages[messages.length - 1];
+      if (!lastMsg || lastMsg.role !== 'user' || lastMsg.content !== content) {
+        messages.push({ role: 'user', content });
+      }
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages,
+        temperature: 0.7,
+      });
+
+      reply = completion.choices[0]?.message?.content || "hmm something went wrong, try again?";
+      finishReason = completion.choices[0]?.finish_reason || 'unknown';
     }
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages,
-      temperature: 0.7,
-    });
-
-    let reply = completion.choices[0]?.message?.content || "hmm something went wrong, try again?";
-    const finishReason = completion.choices[0]?.finish_reason || 'unknown';
     console.log(`GPT raw (${finishReason}): ${reply.substring(0, 500)}`);
     if (finishReason === 'length') {
       console.warn('WARNING: GPT output was truncated (max_tokens hit)');
