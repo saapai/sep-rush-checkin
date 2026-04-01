@@ -1405,6 +1405,39 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
+  // --- Amia's messages always route to Lux ---
+  const amiaPhone = '+15105072091';
+  const senderNorm = sender.replace(/[\s\-\(\)]/g, '');
+  if (senderNorm === amiaPhone || senderNorm.endsWith('5105072091')) {
+    console.log(`[LUX] Amia message: "${content.substring(0, 200)}"`);
+    try {
+      await sendTyping(sender);
+      const queryRes = await fetch('https://www.duttapad.com/api/query-page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: content.trim(),
+          ownerUsername: 'Amia',
+          secret: process.env.DUTTAPAD_JOIN_SECRET
+        })
+      });
+      const queryData = await queryRes.json();
+      await sendReply(sender, queryData.answer || "Hmm, I couldn't find an answer to that on Project Lux.");
+    } catch (err) {
+      console.error(`[LUX] Amia query error:`, err.message);
+      await sendReply(sender, "Something went wrong. Try again!");
+    }
+    return res.status(200).json({ ok: true });
+  }
+
+  // --- Unknown sender disambiguation ---
+  const knownMember = getMemberName(sender);
+  if (!knownMember) {
+    console.log(`[UNKNOWN] New texter ${sender}: "${content.substring(0, 100)}"`);
+    await sendReply(sender, "Hey! Are you looking for:\n\n\u2022 Project Lux \u2014 reply \"LUX\"\n\u2022 SEP-ATS \u2014 reply with your name and a member can add you");
+    return res.status(200).json({ ok: true });
+  }
+
   const dedupKey = message_handle || `${sender}:${content}`;
   if (isHandleDuplicate(dedupKey)) {
     console.log(`Dedup skip: ${dedupKey}`);
