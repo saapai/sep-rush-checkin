@@ -102,6 +102,33 @@ async function summarizeApplicant(recordId) {
 
   await base(APP_TABLE).update(recordId, { application_summary: summary });
 
+  // Mark as "Applied" in the Rush table
+  const email = (fields.email || '').trim().toLowerCase();
+  try {
+    const RUSH_TABLE = "Rush Spring '26";
+    // Try to find by name first, then by email
+    let rushRecords = await base(RUSH_TABLE).select({
+      maxRecords: 1,
+      filterByFormula: `LOWER({applicant_name}) = "${name.toLowerCase().replace(/"/g, '\\"')}"`,
+    }).all();
+
+    if (rushRecords.length === 0 && email) {
+      rushRecords = await base(RUSH_TABLE).select({
+        maxRecords: 1,
+        filterByFormula: `LOWER({email}) = "${email.replace(/"/g, '\\"')}"`,
+      }).all();
+    }
+
+    if (rushRecords.length > 0) {
+      const rushRecord = rushRecords[0];
+      if (rushRecord.get('status') !== 'Applied') {
+        await base(RUSH_TABLE).update(rushRecord.id, { status: 'Applied' });
+      }
+    }
+  } catch (e) {
+    console.error('Failed to update Rush status for', name, e.message);
+  }
+
   return { name, summary, hadResume: !!resumeText };
 }
 
@@ -124,7 +151,7 @@ export default async function handler(req, res) {
       const base = getBase();
       const records = await base(APP_TABLE).select({
         maxRecords: 200,
-        filterByFormula: `AND({applicant_name} != "", {application_summary} = "")`,
+        filterByFormula: `AND({applicant_name} != "", {application_summary} = "", YEAR(Created) = 2026)`,
       }).all();
 
       const results = [];

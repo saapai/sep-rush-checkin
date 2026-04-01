@@ -151,7 +151,7 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
       const records = await base("Application Responses").select({
         fields: ['applicant_name'],
         maxRecords: 500,
-        filterByFormula: '{applicant_name} != ""',
+        filterByFormula: 'AND({applicant_name} != "", YEAR(Created) = 2026)',
       }).all();
       const names = [...new Set(
         records.map(r => (r.get('applicant_name') as string) || '').filter(n => n.trim())
@@ -216,9 +216,9 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
   };
 
   const handleStartApplied = () => {
-    // Only applicants who submitted an application, sorted by class
+    // Only applicants with status "Applied", sorted by class
     const applied = applicants.filter(a =>
-      appliedNames.some(n => n.toLowerCase() === a.name.toLowerCase())
+      a.status?.toLowerCase() === 'applied'
     ).sort((a, b) => {
       const yearA = a.year || 9999;
       const yearB = b.year || 9999;
@@ -267,7 +267,7 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
         const records = await base("Application Responses").select({
           fields: ['applicant_name'],
           maxRecords: 500,
-          filterByFormula: '{applicant_name} != ""',
+          filterByFormula: 'AND({applicant_name} != "", YEAR(Created) = 2026)',
         }).all();
         const freshNames = [...new Set(
           records.map(r => (r.get('applicant_name') as string) || '').filter(n => n.trim())
@@ -466,8 +466,8 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
               <span>or</span>
             </div>
 
-            <button className="present-modal-all present-modal-applied" onClick={handleStartApplied} disabled={appliedNames.length === 0}>
-              Applied Only by Class ({appliedNames.length})
+            <button className="present-modal-all present-modal-applied" onClick={handleStartApplied} disabled={applicants.filter(a => a.status?.toLowerCase() === 'applied').length === 0}>
+              Applied Only by Class ({applicants.filter(a => a.status?.toLowerCase() === 'applied').length})
             </button>
 
             <button className="present-modal-all" onClick={handleStartAll}>

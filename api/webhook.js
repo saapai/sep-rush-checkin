@@ -150,7 +150,7 @@ async function getApplicationData(applicantName) {
   const base = getBase();
   try {
     const records = await base(APP_TABLE).select({
-      filterByFormula: `{applicant_name} = "${applicantName.replace(/"/g, '\\"')}"`,
+      filterByFormula: `LOWER({applicant_name}) = "${applicantName.toLowerCase().replace(/"/g, '\\"')}"`,
       maxRecords: 1,
     }).all();
     if (records.length === 0) return null;

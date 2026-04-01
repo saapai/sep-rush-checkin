@@ -144,7 +144,7 @@ const Slideshow: React.FC<SlideshowProps> = ({
         const base = new Airtable({ apiKey: import.meta.env.VITE_AIRTABLE_API_KEY })
           .base(import.meta.env.VITE_AIRTABLE_BASE_ID);
         const records = await base(APP_TABLE).select({
-          filterByFormula: `{applicant_name} = "${applicant.name.replace(/"/g, '\\"')}"`,
+          filterByFormula: `LOWER({applicant_name}) = "${applicant.name.toLowerCase().replace(/"/g, '\\"')}"`,
           maxRecords: 1,
         }).all();
         if (records.length > 0) {
