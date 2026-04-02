@@ -361,7 +361,8 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
         </div>
         <div className="dash-stats">
           {[
-            { label: 'Total', value: applicants.filter(a => a.status?.toLowerCase() !== 'rejected').length },
+            { label: 'Total', value: applicants.length },
+            { label: 'Remaining', value: applicants.filter(a => a.status?.toLowerCase() === 'applied').length },
             { label: 'D1', value: applicants.filter(a => a.day_1).length },
             { label: 'D2', value: applicants.filter(a => a.day_2).length },
             { label: 'D3', value: applicants.filter(a => a.day_3).length },
