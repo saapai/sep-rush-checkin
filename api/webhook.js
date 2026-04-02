@@ -319,16 +319,48 @@ async function appendNotes(applicant, memberName, newNotes) {
   const currDay = getCurrDay();
   const dayLabel = `Day ${currDay.num}`;
   const entry = `[${memberName} — ${dayLabel}]: ${newNotes}`;
-  const updatedNotes = applicant.notes ? `${applicant.notes}\n${entry}` : entry;
 
-  const summary = await generateSummary(applicant.name, updatedNotes, applicant);
+  // Pre-compute summary with cached data (before fresh read, to minimize race window)
+  const estimatedNotes = applicant.notes ? `${applicant.notes}\n${entry}` : entry;
+  const summary = await generateSummary(applicant.name, estimatedNotes, applicant);
 
-  await base(TABLE).update(applicant.id, {
-    notes: updatedNotes,
-    notes_summary: summary,
-  });
+  // Retry loop: read fresh → write → verify. Retries if a concurrent write overwrote ours.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // Read CURRENT notes from Airtable right before writing to prevent race conditions.
+    const freshRecord = await base(TABLE).find(applicant.id);
+    const currentNotes = freshRecord.get('notes') || '';
 
-  return { updatedNotes, summary };
+    // If this exact entry already exists (from a concurrent/duplicate save), skip
+    if (currentNotes.includes(entry)) {
+      console.log(`Notes already present for ${applicant.name} by ${memberName} (dedup)`);
+      return { updatedNotes: currentNotes, summary };
+    }
+
+    const updatedNotes = currentNotes ? `${currentNotes}\n${entry}` : entry;
+
+    await base(TABLE).update(applicant.id, {
+      notes: updatedNotes,
+      notes_summary: summary,
+    });
+
+    // Verify the write persisted (another concurrent write may have overwritten it)
+    const verifyRecord = await base(TABLE).find(applicant.id);
+    const verifiedNotes = verifyRecord.get('notes') || '';
+    if (verifiedNotes.includes(entry)) {
+      return { updatedNotes: verifiedNotes, summary };
+    }
+
+    console.warn(`Write overwritten for ${applicant.name} by ${memberName}, retry ${attempt + 1}/3`);
+  }
+
+  // Final attempt without verification
+  const lastRead = await base(TABLE).find(applicant.id);
+  const lastNotes = lastRead.get('notes') || '';
+  if (lastNotes.includes(entry)) return { updatedNotes: lastNotes, summary };
+  const finalNotes = lastNotes ? `${lastNotes}\n${entry}` : entry;
+  await base(TABLE).update(applicant.id, { notes: finalNotes, notes_summary: summary });
+  console.warn(`Final attempt for ${applicant.name} by ${memberName}`);
+  return { updatedNotes: finalNotes, summary };
 }
 
 function recomputeFromRaw(scoresRawStr) {
@@ -347,39 +379,21 @@ function recomputeFromRaw(scoresRawStr) {
 
 async function updateScores(applicant, memberName, socialNew, profNew) {
   const base = getBase();
-  const oldSocial = applicant.social || 0;
-  const oldProf = applicant.prof || 0;
-  const oldWeight = applicant.weight || 0;
 
-  // Try to load per-member tracking (scores_raw may not exist in Airtable)
+  // Read FRESH scores_raw from Airtable to prevent concurrent write conflicts
+  const freshRecord = await base(TABLE).find(applicant.id);
+  const freshScoresRaw = freshRecord.get('scores_raw') || '{}';
+
   let raw = {};
-  try { raw = JSON.parse(applicant.scoresRaw || '{}'); } catch { raw = {}; }
+  try { raw = JSON.parse(freshScoresRaw); } catch { raw = {}; }
   const isUpdate = !!raw[memberName];
 
-  let newSocial, newProf, newWeight;
+  // Update this member's scores in the raw map
+  raw[memberName] = { s: socialNew, p: profNew };
 
-  if (isUpdate) {
-    // Re-rating: remove old contribution, add new (weight stays same)
-    const oldS = raw[memberName].s || 0;
-    const oldP = raw[memberName].p || 0;
-    newWeight = oldWeight;
-    if (oldWeight <= 1) {
-      newSocial = socialNew;
-      newProf = profNew;
-    } else {
-      newSocial = (oldSocial * oldWeight - oldS + socialNew) / oldWeight;
-      newProf = (oldProf * oldWeight - oldP + profNew) / oldWeight;
-    }
-  } else {
-    // New rating: standard weighted average
-    newWeight = oldWeight + 1;
-    newSocial = (oldSocial * oldWeight + socialNew) / newWeight;
-    newProf = (oldProf * oldWeight + profNew) / newWeight;
-  }
+  // Recompute aggregates from the full raw map (accurate regardless of stale cache)
+  const { social: newSocial, prof: newProf, elo: newElo, weight: newWeight } = recomputeFromRaw(JSON.stringify(raw));
 
-  const newElo = (newSocial + newProf) / 2;
-
-  // Write ONLY existing Airtable fields (no scores_raw to avoid silent failure)
   await base(TABLE).update(applicant.id, {
     social: Math.round(newSocial * 1000) / 1000,
     prof: Math.round(newProf * 1000) / 1000,
@@ -388,8 +402,6 @@ async function updateScores(applicant, memberName, socialNew, profNew) {
   });
   console.log(`Airtable updated: ${applicant.name} → social=${newSocial.toFixed(3)} prof=${newProf.toFixed(3)} elo=${newElo.toFixed(3)} weight=${newWeight}`);
 
-  // Try to update scores_raw separately (field may not exist)
-  raw[memberName] = { s: socialNew, p: profNew };
   try {
     await base(TABLE).update(applicant.id, { scores_raw: JSON.stringify(raw) });
   } catch (e) {
@@ -401,17 +413,23 @@ async function updateScores(applicant, memberName, socialNew, profNew) {
 
 async function editMemberNotes(applicant, memberName, newContent) {
   const base = getBase();
-  const notes = applicant.notes || '';
-  const lines = notes.split('\n');
-  // Remove all entries by this member
-  const filtered = lines.filter(l => !l.startsWith(`[${memberName} `));
-  // Add new entry
   const currDay = getCurrDay();
   const entry = `[${memberName} — Day ${currDay.num}]: ${newContent}`;
+
+  // Pre-compute summary with cached data
+  const cachedLines = (applicant.notes || '').split('\n');
+  const cachedFiltered = cachedLines.filter(l => !l.startsWith(`[${memberName} `));
+  cachedFiltered.push(entry);
+  const estimatedNotes = cachedFiltered.filter(l => l.trim()).join('\n');
+  const summary = await generateSummary(applicant.name, estimatedNotes, applicant);
+
+  // Fresh read right before write to prevent race conditions
+  const freshRecord = await base(TABLE).find(applicant.id);
+  const freshNotes = freshRecord.get('notes') || '';
+  const lines = freshNotes.split('\n');
+  const filtered = lines.filter(l => !l.startsWith(`[${memberName} `));
   filtered.push(entry);
   const updatedNotes = filtered.filter(l => l.trim()).join('\n');
-
-  const summary = await generateSummary(applicant.name, updatedNotes, applicant);
 
   await base(TABLE).update(applicant.id, { notes: updatedNotes, notes_summary: summary });
   return { updatedNotes, summary };
@@ -419,12 +437,19 @@ async function editMemberNotes(applicant, memberName, newContent) {
 
 async function deleteMemberNotes(applicant, memberName) {
   const base = getBase();
-  const notes = applicant.notes || '';
-  const lines = notes.split('\n');
+
+  // Pre-compute summary with cached data
+  const cachedLines = (applicant.notes || '').split('\n');
+  const cachedFiltered = cachedLines.filter(l => !l.startsWith(`[${memberName} `));
+  const estimatedNotes = cachedFiltered.filter(l => l.trim()).join('\n');
+  const summary = estimatedNotes.trim() ? await generateSummary(applicant.name, estimatedNotes, applicant) : '';
+
+  // Fresh read right before write to prevent race conditions
+  const freshRecord = await base(TABLE).find(applicant.id);
+  const freshNotes = freshRecord.get('notes') || '';
+  const lines = freshNotes.split('\n');
   const filtered = lines.filter(l => !l.startsWith(`[${memberName} `));
   const updatedNotes = filtered.filter(l => l.trim()).join('\n');
-
-  const summary = updatedNotes.trim() ? await generateSummary(applicant.name, updatedNotes, applicant) : '';
 
   await base(TABLE).update(applicant.id, { notes: updatedNotes, notes_summary: summary });
   return { updatedNotes, summary };
