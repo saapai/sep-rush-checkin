@@ -522,7 +522,10 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
             </div>
             <div className="card-info">
               <div className="card-name">{a.name}</div>
-              <div className="card-meta">{getClassLabel(a.year, a.id)} · {getAttendanceCount(a)}/5 days</div>
+              <div className="card-meta">
+                {getClassLabel(a.year, a.id)} · {getAttendanceCount(a)}/5 days
+                {a.major ? ` · ${a.major}` : ''}
+              </div>
             </div>
           </div>
         ))}

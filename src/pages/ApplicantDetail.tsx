@@ -105,7 +105,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
   const [savingPmNote, setSavingPmNote] = useState(false);
   const [pmNoteSaved, setPmNoteSaved] = useState(false);
   const [scoresRevealed, setScoresRevealed] = useState(false);
-  const [activeDay, setActiveDay] = useState(1);
+  const [activeDay, setActiveDay] = useState<number | 'all'>('all');
   const [appData, setAppData] = useState<ApplicationData | null>(null);
   const [resumeModal, setResumeModal] = useState(false);
 
@@ -393,12 +393,26 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
                 {appData.describeYourself && <div className="app-detail-row"><span className="app-label">Self</span><span className="app-value">"{appData.describeYourself}"</span></div>}
               </div>
 
+              {appData.resume && appData.resume.length > 0 && (
+                <button className="resume-link" onClick={() => setResumeModal(true)}>
+                  <div className="resume-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <line x1="16" y1="13" x2="8" y2="13"/>
+                      <line x1="16" y1="17" x2="8" y2="17"/>
+                      <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                  </div>
+                  <div className="resume-info">
+                    <span className="resume-name">{appData.resume[0].filename || 'Resume'}</span>
+                    <span className="resume-meta">PDF Document</span>
+                  </div>
+                  <span className="resume-open">View</span>
+                </button>
+              )}
+
               <div className="app-links">
-                {appData.resume && appData.resume.length > 0 && (
-                  <button className="app-link-btn" onClick={() => setResumeModal(true)}>
-                    Resume
-                  </button>
-                )}
                 {appData.portfolio && (() => {
                   const urls = appData.portfolio.split(/[\s,;\n]+/).map(s => s.trim()).filter(s => s.match(/^https?:\/\//i));
                   if (urls.length === 0) return null;
@@ -486,14 +500,22 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
               if (days.length === 0) {
                 return <p className="notes-empty">No notes yet.</p>;
               }
-              const displayDay = days.includes(activeDay) ? activeDay : days[0];
+              const allNotes = days.flatMap(day =>
+                (dayNotes[day] || []).map(note => ({ day, note }))
+              );
               return (
                 <>
                   <div className="notes-day-tabs">
+                    <button
+                      className={`notes-day-tab ${activeDay === 'all' ? 'active' : ''}`}
+                      onClick={() => setActiveDay('all')}
+                    >
+                      All
+                    </button>
                     {days.map(day => (
                       <button
                         key={day}
-                        className={`notes-day-tab ${displayDay === day ? 'active' : ''}`}
+                        className={`notes-day-tab ${activeDay === day ? 'active' : ''}`}
                         onClick={() => setActiveDay(day)}
                       >
                         Day {day}
@@ -501,13 +523,24 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
                     ))}
                   </div>
                   <div className="notes-day-content">
-                    {dayNotes[displayDay]?.map((note, idx) => (
-                      <div key={idx} className="notes-entry">
-                        {note.split('\n').map((line, lineIdx) => (
-                          <div key={lineIdx}>{line}</div>
-                        ))}
-                      </div>
-                    ))}
+                    {activeDay === 'all' ? (
+                      allNotes.map(({ day, note }, idx) => (
+                        <div key={idx} className="notes-entry">
+                          <span className="notes-day-label">Day {day}</span>
+                          {note.split('\n').map((line, lineIdx) => (
+                            <div key={lineIdx}>{line}</div>
+                          ))}
+                        </div>
+                      ))
+                    ) : (
+                      dayNotes[activeDay]?.map((note, idx) => (
+                        <div key={idx} className="notes-entry">
+                          {note.split('\n').map((line, lineIdx) => (
+                            <div key={lineIdx}>{line}</div>
+                          ))}
+                        </div>
+                      ))
+                    )}
                   </div>
                 </>
               );

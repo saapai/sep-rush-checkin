@@ -438,6 +438,19 @@
 
 .notes-entry > div { margin: 0.1rem 0; }
 
+.notes-day-label {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6366f1;
+  background: #ede9fe;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  margin-bottom: 0.3rem;
+}
+
 .notes-empty {
   color: #bbb;
   font-size: 0.9rem;
@@ -469,6 +482,71 @@
 /* Application card */
 .application-card {
   border: 1.5px solid #e8e8e8;
+}
+
+/* Resume link */
+.resume-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: #f8f8fa;
+  border: 1.5px solid #e8e8e8;
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+  margin-bottom: 1.25rem;
+  transition: all 0.2s;
+}
+
+.resume-link:hover {
+  border-color: #111;
+  background: #f0f0f2;
+}
+
+.resume-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  background: #ef4444;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.resume-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.resume-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #111;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resume-meta {
+  font-size: 0.72rem;
+  color: #999;
+  font-weight: 500;
+}
+
+.resume-open {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #6366f1;
+  padding: 0.3rem 0.75rem;
+  background: #ede9fe;
+  border-radius: 6px;
 }
 
 .essays-list {
