@@ -897,7 +897,7 @@ async function processMessage({ content, sender, message_handle }) {
     }
 
     // --- Large note dump detection & chunking ---
-    const CHUNK_THRESHOLD = 8;
+    const CHUNK_THRESHOLD = 3;
     let reply;
     let finishReason = 'stop';
 
@@ -1039,6 +1039,65 @@ RULES:
     const photoMatch = reply.match(/\[PHOTO:(.+?)\]/i);
 
     console.log(`Tags: notes=${allNotesMatches.length} scores=${allScoresMatches.length} editNotes=${allEditNotesMatches.length} delNotes=${allDeleteNotesMatches.length} ambiguous=${allAmbiguousMatches.length} photo=${!!photoMatch} clarify=${!!clarifyMatch}`);
+
+    // --- FALLBACK: GPT skipped tags for a note dump ---
+    // If GPT generated 0 SAVE_NOTES tags but multiple names are mentioned in the message,
+    // GPT likely wrote a conversational "locked in" response without tags. Re-extract with tag-only prompt.
+    if (allNotesMatches.length === 0 && mentionedNames.length >= 2) {
+      console.warn(`FALLBACK: GPT skipped tags! ${mentionedNames.length} names detected but 0 SAVE_NOTES tags. Re-extracting with tag-only prompt...`);
+      const tagOnlyFallback = `You are a tag generator for a rush note-taking system. Your ONLY job is to output SAVE_NOTES tags (and SAVE_SCORES tags if scores are included).
+
+APPLICANT NAME LIST (use these EXACT full names in all tags):
+${nameList}
+
+RULES:
+- Parse the notes below. Each person's name appears as a header/label followed by their notes.
+- Match each name to the CORRECT full name from the applicant list above.
+- Output ONLY tags, nothing else. No visible text, no confirmations, no lists.
+- Use this format for each person: [SAVE_NOTES:Full Name]their notes here[/SAVE_NOTES]
+- If the notes include scores like "S 3 P 2" or "social 4 prof 5" or "4 3", also generate: [SAVE_SCORES:Full Name:social:prof]
+- Generate a tag for EVERY person mentioned. Do NOT skip anyone.
+- Keep notes as-is — do NOT rewrite or summarize.
+- If a first name matches ONLY ONE person in the list, use that person's full name.
+- If a first name + last initial is given (e.g., "Sofia V"), match to the person whose last name starts with that letter.
+- ONLY flag as ambiguous when JUST a first name is given AND multiple people share that exact first name: [AMBIGUOUS:name|Full Name 1|Full Name 2]`;
+
+      try {
+        const rawChunks = chunkRawText(content, 3000);
+        const fallbackOutputs = [];
+        for (const chunk of rawChunks) {
+          const fc = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+              { role: 'system', content: tagOnlyFallback },
+              { role: 'user', content: chunk },
+            ],
+            temperature: 0.1,
+            max_tokens: 4096,
+          });
+          fallbackOutputs.push(fc.choices[0]?.message?.content || '');
+        }
+        const fallbackReply = fallbackOutputs.join('\n');
+        console.log(`Fallback tags: ${fallbackReply.substring(0, 500)}`);
+
+        // Re-parse tags from fallback
+        const fallbackNotes = extractAllNoteTags(fallbackReply);
+        const fallbackScores = [...fallbackReply.matchAll(/\[SAVE_?SCORES:(.+?):(\d+\.?\d*):(\d+\.?\d*)\]/gi)];
+        const fallbackAmbiguous = [...fallbackReply.matchAll(/\[AMBIGUOUS:(.+?)\]/gi)];
+
+        if (fallbackNotes.length > 0) {
+          console.log(`Fallback recovered ${fallbackNotes.length} note tags!`);
+          allNotesMatches.push(...fallbackNotes);
+          allScoresMatches.push(...fallbackScores);
+          allAmbiguousMatches.push(...fallbackAmbiguous);
+          reply = fallbackReply + '\ngot it';
+        } else {
+          console.warn(`Fallback also produced 0 tags — message may not be a note dump`);
+        }
+      } catch (e) {
+        console.error(`Fallback re-extraction error:`, e.message);
+      }
+    }
 
     // Strip ALL tags from reply — if notes were saved, reply gets overwritten anyway
     if (reactMatch) reply = reply.replace(reactMatch[0], '').trim();
