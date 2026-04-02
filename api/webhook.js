@@ -644,6 +644,7 @@ CRITICAL TAG RULES:
    IMPORTANT: If the user sends notes about 10+ people, you MUST generate tags for ALL of them. Do NOT stop partway. Even 30+ people — tag EVERY single one.
    IMPORTANT: If the user includes scores inline with notes (like "S 3 P 2" or "S 4 P 3" after each person), generate BOTH [SAVE_NOTES] AND [SAVE_SCORES] tags for each person in the same reply.
    IMPORTANT: If the user uses a last initial like "Sofia L" or "Ethan D" to disambiguate, match it to the right person from the applicant list.
+   IMPORTANT: If a name appears with NO notes after it (just the bare name), STILL generate a tag: [SAVE_NOTES:Full Name]no notes[/SAVE_NOTES]. Every name MUST get a tag.
    After all tags, just write "got it" or similar — the system auto-generates a pretty confirmation. Do NOT write your own confirmation or list names.
 
 2. SAVING SCORES (ONLY when user voluntarily provides them — NEVER ask for ratings):
@@ -921,6 +922,7 @@ RULES:
 - If the notes include scores like "S 3 P 2" or "social 4 prof 5" or "4 3", also generate: [SAVE_SCORES:Full Name:social:prof]
 - Generate a tag for EVERY person mentioned. Do NOT skip anyone.
 - Keep notes as-is — do NOT rewrite or summarize.
+- IMPORTANT: If a name appears with NO notes after it (just the bare name), STILL generate a tag: [SAVE_NOTES:Full Name]no notes[/SAVE_NOTES]. Every name mentioned MUST get a tag.
 
 NAME MATCHING:
 - If a first name matches ONLY ONE person in the list, use that person's full name. No ambiguity.
@@ -1003,7 +1005,8 @@ RULES:
 - Misspellings or close names: match to the closest person, do NOT flag ambiguous.
 - ONLY flag ambiguous when just a first name is given AND multiple people share that first name: [AMBIGUOUS:name|Full Name 1|Full Name 2]
 - When a last initial or any distinguishing info is given, ALWAYS resolve.
-- Tag EVERY person. Do NOT skip anyone. Keep notes verbatim.`;
+- Tag EVERY person. Do NOT skip anyone. Keep notes verbatim.
+- If a name appears with NO notes after it, STILL generate: [SAVE_NOTES:Full Name]no notes[/SAVE_NOTES]`;
 
         for (const chunk of rawChunks) {
           try {
@@ -1058,6 +1061,7 @@ RULES:
 - If the notes include scores like "S 3 P 2" or "social 4 prof 5" or "4 3", also generate: [SAVE_SCORES:Full Name:social:prof]
 - Generate a tag for EVERY person mentioned. Do NOT skip anyone.
 - Keep notes as-is — do NOT rewrite or summarize.
+- IMPORTANT: If a name appears with NO notes after it (just the bare name), STILL generate a tag: [SAVE_NOTES:Full Name]no notes[/SAVE_NOTES]. Every name mentioned MUST get a tag.
 - If a first name matches ONLY ONE person in the list, use that person's full name.
 - If a first name + last initial is given (e.g., "Sofia V"), match to the person whose last name starts with that letter.
 - ONLY flag as ambiguous when JUST a first name is given AND multiple people share that exact first name: [AMBIGUOUS:name|Full Name 1|Full Name 2]`;
