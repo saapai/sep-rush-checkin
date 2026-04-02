@@ -840,15 +840,19 @@ async function processMessage({ content, sender, message_handle }) {
 
     console.log(`From ${knownName || sender} | history: ${history.length} | first: ${isFirstMessage}`);
 
-    // Build compact name list for matching
-    const nameList = applicants.map(a => a.name).sort().join(', ');
+    // Only save notes to applicants with "Applied" status — exclude rejected/withdrawn/etc.
+    const activeApplicants = applicants.filter(a => a.status === 'Applied');
+    console.log(`Applicants: ${applicants.length} total, ${activeApplicants.length} active (Applied)`);
+
+    // Build compact name list for matching (active only — don't save to rejected applicants)
+    const nameList = activeApplicants.map(a => a.name).sort().join(', ');
 
     // Extract names mentioned in the user's message for targeted raw notes inclusion
     // Use word-boundary matching to avoid false positives from note content
     const contentLower = content.toLowerCase();
     const mentionedNames = [];
     const seenFirstNames = new Set();
-    for (const a of applicants) {
+    for (const a of activeApplicants) {
       const firstName = a.name.toLowerCase().split(/\s+/)[0];
       if (firstName.length < 2 || seenFirstNames.has(firstName)) continue;
       // Match first name at word boundary (not as part of another word)
@@ -1045,9 +1049,9 @@ RULES:
       }
     }
 
-    // Build a map of first names that are shared by multiple applicants (e.g., Sofia, Jason, Caroline)
+    // Build a map of first names that are shared by multiple ACTIVE applicants (e.g., Sofia, Jason, Caroline)
     const firstNameCounts = {};
-    for (const a of applicants) {
+    for (const a of activeApplicants) {
       const fn = a.name.toLowerCase().split(/\s+/)[0];
       firstNameCounts[fn] = (firstNameCounts[fn] || 0) + 1;
     }
@@ -1061,10 +1065,10 @@ RULES:
       const notesName = notesMatch[1].trim();
       const notesContent = notesMatch[2].trim();
       if (!notesContent) continue;
-      const matches = fuzzyMatch(applicants, notesName);
+      const matches = fuzzyMatch(activeApplicants, notesName);
       if (matches.length === 1) {
         // Server-side disambiguation check: did the user actually type enough to distinguish?
-        // If the first name is shared by multiple applicants, check if the user's raw message
+        // If the first name is shared by multiple active applicants, check if the user's raw message
         // contains a last name or initial — if not, GPT just guessed and we should ask.
         const firstName = matches[0].name.toLowerCase().split(/\s+/)[0];
         if (ambiguousFirstNames.has(firstName)) {
@@ -1084,7 +1088,7 @@ RULES:
 
           if (!hasFullName && !hasLastInitial && !hasLastName) {
             // User just typed the first name — GPT guessed wrong, ask for clarification
-            const sameFirstName = applicants.filter(a =>
+            const sameFirstName = activeApplicants.filter(a =>
               a.name.toLowerCase().split(/\s+/)[0] === firstName
             );
             console.log(`Server-side disambig: "${notesName}" → GPT picked ${matches[0].name} but user only typed "${firstName}" (${sameFirstName.length} matches)`);
@@ -1165,7 +1169,7 @@ RULES:
       const scoreName = scoresMatch[1].trim();
       const socialScore = parseFloat(scoresMatch[2]);
       const profScore = parseFloat(scoresMatch[3]);
-      const matches = fuzzyMatch(applicants, scoreName);
+      const matches = fuzzyMatch(activeApplicants, scoreName);
       if (matches.length === 1 && socialScore >= 1 && socialScore <= 5 && profScore >= 1 && profScore <= 5) {
         try {
           const result = await updateScores(matches[0], memberName, socialScore, profScore);
