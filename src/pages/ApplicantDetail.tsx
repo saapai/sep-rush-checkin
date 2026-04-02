@@ -62,6 +62,10 @@ interface Applicant {
   prof: number;
   weight: number;
   pm_notes: string;
+  major: string;
+  essay_1: string;
+  essay_2: string;
+  essay_3: string;
 }
 
 interface ApplicationData {
@@ -160,6 +164,10 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
           prof: (record.get('prof') as number) || 0,
           weight: (record.get('weight') as number) || 0,
           pm_notes: (record.get('pm_notes') as string) || '',
+          major: (record.get('major') as string) || '',
+          essay_1: (record.get('essay_1') as string) || '',
+          essay_2: (record.get('essay_2') as string) || '',
+          essay_3: (record.get('essay_3') as string) || '',
         };
         setApplicant(a);
         setNoteText(a.notes);
@@ -339,6 +347,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
             <p className="profile-email">{applicant.email || 'No email provided'}</p>
             <div className="profile-badges">
               {applicant.year && <span className="profile-badge badge-year">Class of {applicant.year}</span>}
+              {applicant.major && <span className="profile-badge badge-major">{applicant.major}</span>}
               <span className={`profile-badge badge-status ${statusClass}`}>
                 {applicant.status || 'Unknown'}
               </span>
@@ -437,6 +446,33 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
                 ))}
               </div>
               {!scoresRevealed && <p className="scores-hint">Tap to reveal</p>}
+            </div>
+          )}
+
+          {/* Application Info */}
+          {(applicant.essay_1 || applicant.essay_2 || applicant.essay_3) && (
+            <div className="profile-card card-full application-card">
+              <h2 className="card-title">Application</h2>
+              <div className="essays-list">
+                {applicant.essay_1 && (
+                  <div className="essay-block">
+                    <div className="essay-label">Essay 1</div>
+                    <p className="essay-text">{applicant.essay_1}</p>
+                  </div>
+                )}
+                {applicant.essay_2 && (
+                  <div className="essay-block">
+                    <div className="essay-label">Essay 2</div>
+                    <p className="essay-text">{applicant.essay_2}</p>
+                  </div>
+                )}
+                {applicant.essay_3 && (
+                  <div className="essay-block">
+                    <div className="essay-label">Essay 3</div>
+                    <p className="essay-text">{applicant.essay_3}</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
