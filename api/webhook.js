@@ -928,7 +928,7 @@ ${isFirstMessage ? 'THIS IS THEIR FIRST MESSAGE EVER — follow FIRST MESSAGE BE
 APPLICANT NAME LIST (use these EXACT names in all tags):
 ${nameList}
 
-${buildApplicantSummary(applicants, mentionedNames)}`;
+${buildApplicantSummary(activeApplicants, mentionedNames)}`;
 
       const messages = [
         { role: 'system', content: systemPrompt },
@@ -1039,13 +1039,19 @@ RULES:
     const failedNotes = [];
 
     // Collect GPT-flagged ambiguous names (e.g., [AMBIGUOUS:Sofia|Sofia Valdez|Sofia Llabres])
+    // Filter options to only active (Applied) applicants
+    const activeNames = new Set(activeApplicants.map(a => a.name.toLowerCase()));
     for (const ambMatch of allAmbiguousMatches) {
       const parts = ambMatch[1].split('|').map(p => p.trim());
       const typed = parts[0] || 'unknown';
-      const options = parts.slice(1);
+      const options = parts.slice(1).filter(o => activeNames.has(o.toLowerCase()));
       if (options.length >= 2) {
         failedNotes.push(`${typed} (${options.join(' or ')}?)`);
         console.log(`Ambiguous (GPT): "${typed}" → ${options.join(', ')}`);
+      } else if (options.length === 1) {
+        console.log(`Ambiguous (GPT) resolved: "${typed}" → only 1 active match: ${options[0]} (skipped — no content in AMBIGUOUS tag)`);
+      } else {
+        console.log(`Ambiguous (GPT) dropped: "${typed}" — no active matches`);
       }
     }
 
