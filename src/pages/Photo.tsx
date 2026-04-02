@@ -139,12 +139,12 @@ const Photo: React.FC<PhotoProps> = ({ navigate }) => {
         const status = statusField ? statusField.toString().toLowerCase() : '';
 
         if (status === 'rejected') {
-          alert('Error with check-in: code 6969');
+          alert('Applicant was rejected — ineligible for check-in.');
           setIsCheckingApplicant(false);
           return;
         }
         if (status === 'not applied' && (currDay === 'day_3' || currDay === 'day_4' || currDay === 'day_5')) {
-          alert('Error with check-in: code 6969');
+          alert('Applicant was rejected — ineligible for check-in.');
           setIsCheckingApplicant(false);
           return;
         }
@@ -230,6 +230,11 @@ const Photo: React.FC<PhotoProps> = ({ navigate }) => {
         }
 
         if (existingByEmail) {
+          const existingStatus = ((existingByEmail.get('status') as string) || '').toLowerCase();
+          if (existingStatus === 'rejected') {
+            alert('Applicant was rejected — ineligible for check-in.');
+            return;
+          }
           await base(TABLE).update(existingByEmail.id, {
             applicant_name: rusheeName,
             photo: publicUrl,
@@ -237,6 +242,15 @@ const Photo: React.FC<PhotoProps> = ({ navigate }) => {
             [currDay]: true
           });
         } else {
+          // Final guard: ensure no rejected record exists for this name
+          const rejectedByName = await base(TABLE).select({
+            filterByFormula: `AND({applicant_name} = "${rusheeName}", {status} = "Rejected")`,
+            maxRecords: 1
+          }).all();
+          if (rejectedByName.length > 0) {
+            alert('Applicant was rejected — ineligible for check-in.');
+            return;
+          }
           await base(TABLE).create({
             applicant_name: rusheeName,
             photo: publicUrl,

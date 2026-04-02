@@ -41,16 +41,18 @@ const ApplicantAutocomplete: React.FC<ApplicantAutocompleteProps> = ({
     try {
       setLoading(true);
       const records = await base("Rush Spring '26").select({
-        fields: ['applicant_name'],
+        fields: ['applicant_name', 'status'],
         maxRecords: 1000
       }).all();
 
       const applicantList = records
         .map(record => ({
           id: record.id,
-          name: record.get('applicant_name') as string
+          name: record.get('applicant_name') as string,
+          status: (record.get('status') as string) || ''
         }))
-        .filter(applicant => applicant.name && applicant.name.trim() !== '')
+        .filter(applicant => applicant.name && applicant.name.trim() !== '' && applicant.status?.toLowerCase() !== 'rejected')
+        .map(({ id, name }) => ({ id, name }))
         .sort((a, b) => a.name.localeCompare(b.name));
 
       setApplicants(applicantList);

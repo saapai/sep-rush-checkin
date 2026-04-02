@@ -48,7 +48,8 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('applied');
+  const [dayFilter, setDayFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name-asc');
   const [showSlideshow, setShowSlideshow] = useState(false);
   const [slideshowStartIndex, setSlideshowStartIndex] = useState(0);
@@ -56,6 +57,12 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
   const [presentNames, setPresentNames] = useState<string[]>([]);
   const [presentNamesText, setPresentNamesText] = useState('');
   const [appliedNames, setAppliedNames] = useState<string[]>([]);
+  const [showBulkRejectModal, setShowBulkRejectModal] = useState(false);
+  const [dayPresentAppliedOnly, setDayPresentAppliedOnly] = useState(true);
+  const [selectedDays, setSelectedDays] = useState<number[]>([]);
+  const [bulkRejectText, setBulkRejectText] = useState('');
+  const [bulkRejectRunning, setBulkRejectRunning] = useState(false);
+  const [bulkRejectResult, setBulkRejectResult] = useState<{ rejected: string[], keepUnmatched: string[], alreadyRejected: number } | null>(null);
 
   const isAdmin = sessionStorage.getItem('dash_auth') === 'admin';
 
@@ -175,8 +182,11 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
     .filter(a => {
       const q = searchQuery.toLowerCase();
       const matchesSearch = a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q);
-      const matchesStatus = statusFilter === 'all' || a.status.toLowerCase() === statusFilter.toLowerCase();
-      return matchesSearch && matchesStatus;
+      const matchesStatus = statusFilter === 'all'
+        ? true
+        : a.status.toLowerCase() === statusFilter.toLowerCase();
+      const matchesDay = dayFilter === 'all' || (a as Record<string, unknown>)[`day_${dayFilter}`] === true;
+      return matchesSearch && matchesStatus && matchesDay;
     })
     .sort((a, b) => {
       switch (sortBy) {
@@ -229,6 +239,27 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
     launchPresentation(names, true);
   };
 
+  const getApplicantsForDays = (days: number[]) => {
+    const seen = new Set<string>();
+    const result: typeof applicants = [];
+    for (const a of applicants) {
+      if (seen.has(a.id)) continue;
+      const statusOk = dayPresentAppliedOnly ? a.status?.toLowerCase() === 'applied' : a.status?.toLowerCase() !== 'rejected';
+      const dayOk = days.some(d => (a as Record<string, unknown>)[`day_${d}`] === true);
+      if (statusOk && dayOk) { seen.add(a.id); result.push(a); }
+    }
+    return result.sort((a, b) => {
+      const yearA = a.year || 9999;
+      const yearB = b.year || 9999;
+      if (yearB !== yearA) return yearB - yearA;
+      return a.name.localeCompare(b.name);
+    });
+  };
+
+  const handleStartSelectedDays = () => {
+    launchPresentation(getApplicantsForDays(selectedDays).map(a => a.name));
+  };
+
   const launchPresentation = (names: string[], appliedMode = false) => {
     setPresentNames(names);
     setSlideshowStartIndex(0);
@@ -254,6 +285,57 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
     setPresentNames([]);
     setPresentNamesText('');
     sessionStorage.removeItem('present_session');
+  };
+
+  // Name matching helpers — ported from bulk-reject.js
+  const brNormalize = (name: string) => name.toLowerCase().trim().replace(/\s+/g, ' ');
+  const brVariants = (name: string): string[] => {
+    const variants = [brNormalize(name)];
+    const stripped = brNormalize(name.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+/g, ' ').trim());
+    if (stripped !== variants[0]) variants.push(stripped);
+    const aliasMatch = name.match(/\(([^)]+)\)/);
+    if (aliasMatch) variants.push(brNormalize(aliasMatch[1]));
+    return variants;
+  };
+  const brBuildKeepVariants = (keepList: string[]): Set<string> => {
+    const s = new Set<string>();
+    for (const name of keepList) brVariants(name).forEach(v => s.add(v));
+    return s;
+  };
+  const brIsOnKeepList = (recordName: string, keepVariants: Set<string>) =>
+    brVariants(recordName).some(v => keepVariants.has(v));
+
+  const handleBulkReject = async () => {
+    const keepList = bulkRejectText.split('\n').map(n => n.trim()).filter(n => n.length > 0);
+    if (keepList.length === 0) return;
+
+    setBulkRejectRunning(true);
+    setBulkRejectResult(null);
+
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const keepVariants = brBuildKeepVariants(keepList);
+
+    const toReject = applicants.filter(a =>
+      (a.status || '').toLowerCase() !== 'rejected' && !brIsOnKeepList(a.name, keepVariants)
+    );
+    const alreadyRejected = applicants.filter(a => (a.status || '').toLowerCase() === 'rejected').length;
+    const keepUnmatched = keepList.filter(keepName => {
+      const kv = new Set(brVariants(keepName));
+      return !applicants.some(a => brVariants(a.name).some(v => kv.has(v)));
+    });
+
+    for (let i = 0; i < toReject.length; i += 10) {
+      const batch = toReject.slice(i, i + 10).map(a => ({
+        id: a.id,
+        fields: { status: 'Rejected' },
+      }));
+      await base(TABLE).update(batch);
+      await sleep(200);
+    }
+
+    setBulkRejectResult({ rejected: toReject.map(a => a.name), keepUnmatched, alreadyRejected });
+    setBulkRejectRunning(false);
+    fetchApplicants();
   };
 
   // Poll for new applications when slideshow is open in applied mode
@@ -338,8 +420,7 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
         </div>
         <div className="dash-stats">
           {[
-            { label: 'Total', value: applicants.length },
-            { label: 'Photos', value: applicants.filter(a => a.photo).length },
+            { label: 'Total', value: applicants.filter(a => a.status?.toLowerCase() !== 'rejected').length },
             { label: 'D1', value: applicants.filter(a => a.day_1).length },
             { label: 'D2', value: applicants.filter(a => a.day_2).length },
             { label: 'D3', value: applicants.filter(a => a.day_3).length },
@@ -364,8 +445,17 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
           onChange={(e) => setSearchQuery(e.target.value)}
         />
         <select className="dash-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="applied">Applied</option>
+          <option value="rejected">Rejected</option>
           <option value="all">All Statuses</option>
-          {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select className="dash-filter" value={dayFilter} onChange={(e) => setDayFilter(e.target.value)}>
+          <option value="all">All Days</option>
+          <option value="1">Day 1</option>
+          <option value="2">Day 2</option>
+          <option value="3">Day 3</option>
+          <option value="4">Day 4</option>
+          <option value="5">Day 5</option>
         </select>
         <select className="dash-filter" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
           <option value="name-asc">Name A-Z</option>
@@ -385,8 +475,11 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
                 Resume ({presentNames.length})
               </button>
             )}
-            <button className="dash-present" onClick={() => setShowPresentModal(true)}>
+            <button className="dash-present" onClick={() => { setSelectedDays([]); setShowPresentModal(true); }}>
               {presentNames.length > 0 ? 'New Presentation' : 'Present'}
+            </button>
+            <button className="dash-bulk-reject" onClick={() => { setBulkRejectResult(null); setBulkRejectText(''); setShowBulkRejectModal(true); }}>
+              Bulk Reject
             </button>
           </>
         )}
@@ -460,9 +553,12 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
                   <>
                     <span className="present-match-count">{matched.length} matched</span>
                     {unmatched.length > 0 && (
-                      <span className="present-unmatch-count" title={unmatched.join(', ')}>
-                        {unmatched.length} not found
-                      </span>
+                      <div className="present-unmatched-list">
+                        <span className="present-unmatch-count">{unmatched.length} not found:</span>
+                        <ul>
+                          {unmatched.map((name, i) => <li key={i}>{name}</li>)}
+                        </ul>
+                      </div>
                     )}
                   </>
                 );
@@ -473,33 +569,76 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
               <span>or</span>
             </div>
 
-            <button className="present-modal-all present-modal-applied" onClick={handleStartApplied} disabled={applicants.filter(a => a.status?.toLowerCase() === 'applied').length === 0}>
-              Applied Only by Class ({applicants.filter(a => a.status?.toLowerCase() === 'applied').length})
-            </button>
-
-            <button className="present-modal-all" onClick={handleStartAll}>
-              All Applicants by Class ({applicants.length})
-            </button>
-
-            <div className="present-modal-footer">
-              <div className="present-modal-actions">
-                {presentNames.length > 0 && (
-                  <button className="present-modal-clear" onClick={handleClearPresentation}>
-                    Clear Saved
-                  </button>
-                )}
-                <button className="present-modal-cancel" onClick={() => setShowPresentModal(false)}>
-                  Cancel
-                </button>
-                <button
-                  className="present-modal-start"
-                  disabled={presentNamesText.split('\n').filter(n => n.trim()).length === 0}
-                  onClick={handleStartPresentation}
-                >
-                  Start &rarr;
-                </button>
-              </div>
+            <div className="present-modal-day-header">
+              <span className="present-modal-day-label">By Day</span>
+              <label className="present-modal-switch">
+                <input
+                  type="checkbox"
+                  checked={dayPresentAppliedOnly}
+                  onChange={e => { setDayPresentAppliedOnly(e.target.checked); setSelectedDays([]); }}
+                />
+                <span className="switch-track"><span className="switch-thumb" /></span>
+                <span className="switch-label">Applied only</span>
+              </label>
             </div>
+
+            <div className="present-modal-day-row">
+              {[1, 2, 3, 4, 5].map(day => {
+                const count = applicants.filter(a =>
+                  (dayPresentAppliedOnly ? a.status?.toLowerCase() === 'applied' : a.status?.toLowerCase() !== 'rejected') &&
+                  (a as Record<string, unknown>)[`day_${day}`] === true
+                ).length;
+                const isSelected = selectedDays.includes(day);
+                return (
+                  <button
+                    key={day}
+                    className={`present-modal-day-btn ${isSelected ? 'day-btn-selected' : ''}`}
+                    onClick={() => setSelectedDays(prev =>
+                      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+                    )}
+                    disabled={count === 0}
+                  >
+                    Day {day} <span className="present-modal-day-count">({count})</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {(() => {
+              const customNames = presentNamesText.split('\n').map(n => n.trim()).filter(n => n.length > 0);
+              const customMatched = customNames.filter(name => applicants.some(a => a.name.toLowerCase() === name.toLowerCase()));
+              const dayTotal = selectedDays.length > 0 ? getApplicantsForDays(selectedDays).length : 0;
+              const total = selectedDays.length > 0 ? dayTotal : customMatched.length;
+              const canStart = selectedDays.length > 0 ? dayTotal > 0 : customNames.length > 0;
+              const handleStart = selectedDays.length > 0 ? handleStartSelectedDays : handleStartPresentation;
+              return (
+                <div className="present-modal-footer">
+                  <div className="present-modal-total-count">
+                    {total > 0
+                      ? <span>{total} applicant{total !== 1 ? 's' : ''} will be presented</span>
+                      : <span className="present-modal-total-empty">No applicants selected</span>
+                    }
+                  </div>
+                  <div className="present-modal-actions">
+                    {presentNames.length > 0 && (
+                      <button className="present-modal-clear" onClick={handleClearPresentation}>
+                        Clear Saved
+                      </button>
+                    )}
+                    <button className="present-modal-cancel" onClick={() => setShowPresentModal(false)}>
+                      Cancel
+                    </button>
+                    <button
+                      className="present-modal-start"
+                      disabled={!canStart}
+                      onClick={handleStart}
+                    >
+                      Start &rarr;
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -514,6 +653,100 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
           isAdmin={isAdmin}
           navigate={navigate}
         />
+      )}
+
+      {showBulkRejectModal && (
+        <div className="present-modal-overlay" onClick={() => !bulkRejectRunning && setShowBulkRejectModal(false)}>
+          <div className="present-modal" onClick={e => e.stopPropagation()}>
+            <h2 className="present-modal-title">Bulk Reject</h2>
+            <p className="present-modal-desc">Paste the <strong>keep list</strong> — one name per line. Everyone <em>not</em> on this list gets set to Rejected.</p>
+
+            {!bulkRejectResult ? (
+              <>
+                <textarea
+                  className="present-modal-textarea"
+                  placeholder={"Jane Doe\nJohn Smith\nAlex Chen"}
+                  value={bulkRejectText}
+                  onChange={e => setBulkRejectText(e.target.value)}
+                  autoFocus
+                  rows={12}
+                  disabled={bulkRejectRunning}
+                />
+                {(() => {
+                  const keepList = bulkRejectText.split('\n').map(n => n.trim()).filter(n => n.length > 0);
+                  if (keepList.length === 0) return null;
+                  const kv = brBuildKeepVariants(keepList);
+                  const willReject = applicants.filter(a =>
+                    (a.status || '').toLowerCase() !== 'rejected' && !brIsOnKeepList(a.name, kv)
+                  ).length;
+                  const alreadyRej = applicants.filter(a => (a.status || '').toLowerCase() === 'rejected').length;
+                  const unmatched = keepList.filter(keepName => {
+                    const kv2 = new Set(brVariants(keepName));
+                    return !applicants.some(a => brVariants(a.name).some(v => kv2.has(v)));
+                  });
+                  return (
+                    <div className="present-modal-match-info" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.3rem' }}>
+                      <span className="present-match-count">{keepList.length - unmatched.length} keep list matches · {willReject} will be rejected</span>
+                      {alreadyRej > 0 && <span style={{ color: '#999', fontSize: '0.8rem' }}>{alreadyRej} already rejected (skip)</span>}
+                      {unmatched.length > 0 && (
+                        <div className="present-unmatched-list">
+                          <span className="present-unmatch-count">{unmatched.length} keep list names not found:</span>
+                          <ul>{unmatched.map((name, i) => <li key={i}>{name}</li>)}</ul>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+                <div className="present-modal-footer" style={{ marginTop: '1rem' }}>
+                  <div className="present-modal-actions" style={{ width: '100%', justifyContent: 'flex-end' }}>
+                    <button className="present-modal-cancel" onClick={() => setShowBulkRejectModal(false)} disabled={bulkRejectRunning}>
+                      Cancel
+                    </button>
+                    <button
+                      className="bulk-reject-confirm"
+                      disabled={bulkRejectRunning || bulkRejectText.split('\n').filter(n => n.trim()).length === 0}
+                      onClick={handleBulkReject}
+                    >
+                      {bulkRejectRunning ? 'Rejecting...' : (() => {
+                        const kl = bulkRejectText.split('\n').map(n => n.trim()).filter(n => n.length > 0);
+                        const kv = brBuildKeepVariants(kl);
+                        const n = applicants.filter(a => (a.status || '').toLowerCase() !== 'rejected' && !brIsOnKeepList(a.name, kv)).length;
+                        return `Reject ${n} applicants`;
+                      })()}
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="bulk-reject-result">
+                <div className="bulk-reject-section">
+                  <div className="bulk-reject-section-title bulk-reject-ok">{bulkRejectResult.rejected.length} rejected · {bulkRejectResult.alreadyRejected} already rejected (skipped)</div>
+                  <ul className="bulk-reject-list">
+                    {bulkRejectResult.rejected.map((name, i) => <li key={i}>{name}</li>)}
+                  </ul>
+                </div>
+                {bulkRejectResult.keepUnmatched.length > 0 && (
+                  <div className="bulk-reject-section">
+                    <div className="bulk-reject-section-title bulk-reject-warn">{bulkRejectResult.keepUnmatched.length} keep list names had no matching record</div>
+                    <ul className="bulk-reject-list">
+                      {bulkRejectResult.keepUnmatched.map((name, i) => <li key={i}>{name}</li>)}
+                    </ul>
+                  </div>
+                )}
+                <div className="present-modal-footer" style={{ marginTop: '1rem' }}>
+                  <div className="present-modal-actions" style={{ width: '100%', justifyContent: 'flex-end' }}>
+                    <button className="present-modal-cancel" onClick={() => { setBulkRejectResult(null); setBulkRejectText(''); }}>
+                      Back
+                    </button>
+                    <button className="present-modal-start" onClick={() => setShowBulkRejectModal(false)}>
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
