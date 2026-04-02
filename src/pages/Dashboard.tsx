@@ -392,6 +392,13 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
         )}
       </div>
 
+      {/* Result count */}
+      {(searchQuery || statusFilter !== 'all') && (
+        <div className="dash-result-count">
+          Showing {filtered.length} of {applicants.length}
+        </div>
+      )}
+
       {/* Card grid */}
       <div className="card-grid">
         {filtered.map((a, idx) => (

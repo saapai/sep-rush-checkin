@@ -64,6 +64,17 @@ interface Applicant {
   pm_notes: string;
 }
 
+interface ApplicationData {
+  major: string;
+  gpa: number | null;
+  whySep: string;
+  drive: string;
+  describeYourself: string;
+  portfolio: string;
+  resume: { url: string; filename: string }[] | null;
+  applicationSummary: string;
+}
+
 interface ApplicantDetailProps {
   applicantId: string;
   navigate: (path: string) => void;
@@ -90,6 +101,8 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
   const [pmNoteSaved, setPmNoteSaved] = useState(false);
   const [scoresRevealed, setScoresRevealed] = useState(false);
   const [activeDay, setActiveDay] = useState(1);
+  const [appData, setAppData] = useState<ApplicationData | null>(null);
+  const [resumeModal, setResumeModal] = useState(false);
 
   const isAdmin = sessionStorage.getItem('dash_auth') === 'admin';
 
@@ -159,6 +172,35 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
     };
     fetchApplicant();
   }, [authenticated, applicantId]);
+
+  // Fetch application data
+  useEffect(() => {
+    if (!applicant) return;
+    const fetchAppData = async () => {
+      try {
+        const records = await base("Application Responses").select({
+          filterByFormula: `LOWER({applicant_name}) = "${applicant.name.toLowerCase().replace(/"/g, '\\"')}"`,
+          maxRecords: 1,
+        }).all();
+        if (records.length > 0) {
+          const r = records[0];
+          setAppData({
+            major: (r.get('major_minor') as string) || '',
+            gpa: (r.get('GPA') as number) || null,
+            whySep: (r.get('why_sep') as string) || '',
+            drive: (r.get('drive') as string) || '',
+            describeYourself: (r.get('describe_yourself') as string) || '',
+            portfolio: (r.get('Portfolio, Website, Github, etc.') as string) || '',
+            resume: (r.get('resume') as { url: string; filename: string }[]) || null,
+            applicationSummary: (r.get('application_summary') as string) || '',
+          });
+        }
+      } catch (e) {
+        console.error('Error fetching application data:', e);
+      }
+    };
+    fetchAppData();
+  }, [applicant?.id]);
 
   const saveNote = async () => {
     if (!applicant) return;
@@ -307,6 +349,64 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
 
         {/* Content grid */}
         <div className="profile-content">
+          {/* Application */}
+          {appData && (
+            <div className="profile-card card-full">
+              <h2 className="card-title">Application</h2>
+
+              {appData.applicationSummary && (
+                <div className="app-summary-block">
+                  <p className="app-summary-text">{appData.applicationSummary}</p>
+                </div>
+              )}
+
+              <div className="app-details">
+                {appData.major && <div className="app-detail-row"><span className="app-label">Major</span><span className="app-value">{appData.major}</span></div>}
+                {appData.describeYourself && <div className="app-detail-row"><span className="app-label">Self</span><span className="app-value">"{appData.describeYourself}"</span></div>}
+              </div>
+
+              <div className="app-links">
+                {appData.resume && appData.resume.length > 0 && (
+                  <button className="app-link-btn" onClick={() => setResumeModal(true)}>
+                    Resume
+                  </button>
+                )}
+                {appData.portfolio && (() => {
+                  const urls = appData.portfolio.split(/[\s,;\n]+/).map(s => s.trim()).filter(s => s.match(/^https?:\/\//i));
+                  if (urls.length === 0) return null;
+                  const getLabel = (url: string) => {
+                    try {
+                      const host = new URL(url).hostname.replace('www.', '');
+                      if (host.includes('github')) return 'GitHub';
+                      if (host.includes('linkedin')) return 'LinkedIn';
+                      if (host.includes('drive.google')) return 'Google Drive';
+                      if (host.includes('behance')) return 'Behance';
+                      if (host.includes('figma')) return 'Figma';
+                      if (host.includes('youtube') || host.includes('youtu.be')) return 'YouTube';
+                      return host.split('.')[0].charAt(0).toUpperCase() + host.split('.')[0].slice(1);
+                    } catch { return 'Link'; }
+                  };
+                  return urls.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="app-link-btn">{getLabel(url)}</a>
+                  ));
+                })()}
+              </div>
+
+              {appData.whySep && (
+                <div className="app-essay">
+                  <div className="app-essay-label">Why SEP</div>
+                  <p className="app-essay-text">{appData.whySep}</p>
+                </div>
+              )}
+              {appData.drive && (
+                <div className="app-essay">
+                  <div className="app-essay-label">Drive</div>
+                  <p className="app-essay-text">{appData.drive}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Attendance */}
           <div className="profile-card">
             <h2 className="card-title">Attendance</h2>
@@ -430,6 +530,28 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
           )}
         </div>
       </div>
+
+      {/* Resume modal */}
+      {resumeModal && appData?.resume && appData.resume.length > 0 && (
+        <div className="resume-modal-overlay" onClick={() => setResumeModal(false)}>
+          <div className="resume-modal" onClick={e => e.stopPropagation()}>
+            <div className="resume-modal-header">
+              <h3>Resume — {applicant.name}</h3>
+              <div className="resume-modal-actions">
+                <a href={appData.resume[0].url} target="_blank" rel="noopener noreferrer" className="resume-open-tab">
+                  Open in new tab
+                </a>
+                <button className="resume-modal-close" onClick={() => setResumeModal(false)}>&times;</button>
+              </div>
+            </div>
+            <iframe
+              src={appData.resume[0].url}
+              className="resume-iframe"
+              title={`Resume - ${applicant.name}`}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
