@@ -806,7 +806,7 @@ function extractAllNoteTags(text) {
   const seen = new Set();
 
   // Format 1: [SAVE_NOTES:Name]content[/SAVE_NOTES] — proper bracket with closing tag
-  for (const m of text.matchAll(/\[SAVE_?NOTES:(.+?)\]([\s\S]*?)\[\/SAVE_?NOTES\]/gi)) {
+  for (const m of text.matchAll(/\[\s*SAVE_?NOTES:(.+?)\]([\s\S]*?)\[\s*\/\s*SAVE_?NOTES\]/gi)) {
     const name = m[1].trim();
     const notes = m[2].trim();
     if (name && notes && !seen.has(name.toLowerCase())) {
@@ -816,7 +816,7 @@ function extractAllNoteTags(text) {
   }
 
   // Format 2: [SAVENOTES:Name:content] — colon-separated, no closing tag
-  for (const m of text.matchAll(/\[SAVE_?NOTES:([^:\]]+):([^\]]+)\]/gi)) {
+  for (const m of text.matchAll(/\[\s*SAVE_?NOTES:([^:\]]+):([^\]]+)\]/gi)) {
     const name = m[1].trim();
     const notes = m[2].trim();
     if (name && notes && !seen.has(name.toLowerCase())) {
@@ -826,7 +826,7 @@ function extractAllNoteTags(text) {
   }
 
   // Format 3: [SAVENOTES:Name]content (NO closing tag — runs to next [SAVE tag or end)
-  const tagPattern = /\[SAVE_?NOTES:([^\]]+)\]/gi;
+  const tagPattern = /\[\s*SAVE_?NOTES:([^\]]+)\]/gi;
   const positions = [];
   let match;
   while ((match = tagPattern.exec(text)) !== null) {
@@ -842,7 +842,7 @@ function extractAllNoteTags(text) {
     const contentEnd = i + 1 < positions.length ? positions[i + 1].start : text.length;
     let noteContent = text.substring(tag.contentStart, contentEnd).trim();
     // Remove closing tags and trailing confirmations
-    noteContent = noteContent.replace(/\[\/SAVE_?NOTES\]/gi, '').trim();
+    noteContent = noteContent.replace(/\[\s*\/\s*SAVE_?NOTES\]/gi, '').trim();
     noteContent = noteContent.replace(/\s*(got it|notes saved|rate |social:|prof:|how'?s|speaking of|by the way|still need|locked in).*/is, '').trim();
     noteContent = noteContent.replace(/\.\s*$/, '').trim();
 
@@ -1034,7 +1034,7 @@ RULES:
 
     // Extract notes from ALL tag formats GPT has ever produced
     const allNotesMatches = extractAllNoteTags(reply);
-    const allScoresMatches = [...reply.matchAll(/\[SAVE_?SCORES:(.+?):(\d+\.?\d*):(\d+\.?\d*)\]/gi)];
+    const allScoresMatches = [...reply.matchAll(/\[\s*SAVE_?SCORES:(.+?):(\d+\.?\d*):(\d+\.?\d*)\]/gi)];
     const allEditNotesMatches = [...reply.matchAll(/\[EDIT_MY_NOTES:(.+?)\]([\s\S]*?)\[\/EDIT_MY_NOTES\]/gi)];
     const allDeleteNotesMatches = [...reply.matchAll(/\[DELETE_MY_NOTES:(.+?)\]/gi)];
     const allDeleteScoresMatches = [...reply.matchAll(/\[DELETE_MY_SCORES:(.+?)\]/gi)];
@@ -1107,14 +1107,14 @@ RULES:
     // Strip ALL tags from reply — if notes were saved, reply gets overwritten anyway
     if (reactMatch) reply = reply.replace(reactMatch[0], '').trim();
     // Strip bracket-closed notes: [SAVE_NOTES:Name]content[/SAVE_NOTES]
-    reply = reply.replace(/\[SAVE_?NOTES:(.+?)\]([\s\S]*?)\[\/SAVE_?NOTES\]/gi, '').trim();
+    reply = reply.replace(/\[\s*SAVE_?NOTES:(.+?)\]([\s\S]*?)\[\s*\/\s*SAVE_?NOTES\]/gi, '').trim();
     // Strip closing tags
-    reply = reply.replace(/\[\/SAVE_?NOTES\]/gi, '').trim();
+    reply = reply.replace(/\[\s*\/\s*SAVE_?NOTES\]/gi, '').trim();
     // Strip Format 3 unclosed tags AND their trailing content (up to next tag or natural break)
     // This prevents note content from leaking into the visible reply
-    reply = reply.replace(/\[SAVE_?NOTES:[^\]]+\][^\[]*/gi, '').trim();
+    reply = reply.replace(/\[\s*SAVE_?NOTES:[^\]]+\][^\[]*/gi, '').trim();
     // Strip score tags
-    reply = reply.replace(/\[SAVE_?SCORES:[^\]]+\]/gi, '').trim();
+    reply = reply.replace(/\[\s*SAVE_?SCORES:[^\]]+\]/gi, '').trim();
     for (const m of allEditNotesMatches) reply = reply.replace(m[0], '').trim();
     for (const m of allDeleteNotesMatches) reply = reply.replace(m[0], '').trim();
     for (const m of allDeleteScoresMatches) reply = reply.replace(m[0], '').trim();
@@ -1370,9 +1370,9 @@ RULES:
     reply = reply.replace(/\n{3,}/g, '\n\n');
 
     // Safety net: strip any leaked tags that slipped through (including invented formats)
-    if (/\[[A-Z_]{3,}:/i.test(reply)) {
+    if (/\[\s*[A-Z_]{3,}:/i.test(reply)) {
       console.warn('LEAKED TAGS detected in reply, stripping all brackets');
-      reply = reply.replace(/\[[^\]]*\]/g, '').trim();
+      reply = reply.replace(/\[\s*[^\]]*\]/g, '').trim();
     }
 
     // Guard against empty reply after tag stripping
