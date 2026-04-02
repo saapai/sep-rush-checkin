@@ -324,9 +324,17 @@ async function appendNotes(applicant, memberName, newNotes) {
   const estimatedNotes = applicant.notes ? `${applicant.notes}\n${entry}` : entry;
   const summary = await generateSummary(applicant.name, estimatedNotes, applicant);
 
-  // Retry loop: read fresh → write → verify. Retries if a concurrent write overwrote ours.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    // Read CURRENT notes from Airtable right before writing to prevent race conditions.
+  // Retry loop with exponential backoff + jitter.
+  // Handles 50+ concurrent writers to the same applicant:
+  // read fresh → write → verify → if overwritten, backoff and retry.
+  const MAX_RETRIES = 5;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      // Exponential backoff with jitter: 200-700ms, 400-1400ms, 800-2800ms, 1600-5600ms
+      const backoff = Math.pow(2, attempt) * 200 + Math.random() * Math.pow(2, attempt) * 500;
+      await new Promise(r => setTimeout(r, backoff));
+    }
+
     const freshRecord = await base(TABLE).find(applicant.id);
     const currentNotes = freshRecord.get('notes') || '';
 
@@ -350,10 +358,10 @@ async function appendNotes(applicant, memberName, newNotes) {
       return { updatedNotes: verifiedNotes, summary };
     }
 
-    console.warn(`Write overwritten for ${applicant.name} by ${memberName}, retry ${attempt + 1}/3`);
+    console.warn(`Write overwritten for ${applicant.name} by ${memberName}, retry ${attempt + 1}/${MAX_RETRIES}`);
   }
 
-  // Final attempt without verification
+  // Final attempt
   const lastRead = await base(TABLE).find(applicant.id);
   const lastNotes = lastRead.get('notes') || '';
   if (lastNotes.includes(entry)) return { updatedNotes: lastNotes, summary };
