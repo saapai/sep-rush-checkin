@@ -31,6 +31,7 @@ const MEMBER_DIRECTORY = {
   '+16196435215': 'Franco',
   '+17478888100': 'Eden',
   '+16504714569': 'Cheryl',
+  '+14085154300': 'Kareena',
 };
 
 function getMemberName(phoneNumber) {
