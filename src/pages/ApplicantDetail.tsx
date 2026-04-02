@@ -449,33 +449,6 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
             </div>
           )}
 
-          {/* Application Info */}
-          {(applicant.essay_1 || applicant.essay_2 || applicant.essay_3) && (
-            <div className="profile-card card-full application-card">
-              <h2 className="card-title">Application</h2>
-              <div className="essays-list">
-                {applicant.essay_1 && (
-                  <div className="essay-block">
-                    <div className="essay-label">Essay 1</div>
-                    <p className="essay-text">{applicant.essay_1}</p>
-                  </div>
-                )}
-                {applicant.essay_2 && (
-                  <div className="essay-block">
-                    <div className="essay-label">Essay 2</div>
-                    <p className="essay-text">{applicant.essay_2}</p>
-                  </div>
-                )}
-                {applicant.essay_3 && (
-                  <div className="essay-block">
-                    <div className="essay-label">Essay 3</div>
-                    <p className="essay-text">{applicant.essay_3}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Notes */}
           <div className="profile-card card-full">
             <div className="notes-header">
