@@ -29,6 +29,7 @@ interface Applicant {
   essay_1?: string;
   essay_2?: string;
   essay_3?: string;
+  gender?: string;
   resume?: string;
 }
 
@@ -120,6 +121,9 @@ const Slideshow: React.FC<SlideshowProps> = ({
 
   // Export copied state
   const [exportCopied, setExportCopied] = useState(false);
+
+  // Gender overrides (id -> 'M'|'F') applied during this session
+  const [genderOverrides, setGenderOverrides] = useState<Record<string, string>>({});
 
   const orderedApplicants = presentationNames
     .map(name => applicants.find(a => a.name.toLowerCase() === name.toLowerCase()))
@@ -283,6 +287,21 @@ const Slideshow: React.FC<SlideshowProps> = ({
     return () => document.removeEventListener('mousedown', handleClick);
   }, [modal.type]);
 
+  // --- Gender toggle ---
+  const handleGenderToggle = async (value: 'M' | 'F') => {
+    const current = genderOverrides[applicant.id] ?? applicant.gender ?? '';
+    const next = current === value ? '' : value;
+    setGenderOverrides(prev => ({ ...prev, [applicant.id]: next }));
+    try {
+      const Airtable = (await import('airtable')).default;
+      const base = new Airtable({ apiKey: import.meta.env.VITE_AIRTABLE_API_KEY })
+        .base(import.meta.env.VITE_AIRTABLE_BASE_ID);
+      await base("Rush Spring '26").update(applicant.id, { gender: next });
+    } catch (e) {
+      console.error('Failed to save gender:', e);
+    }
+  };
+
   // --- Export script ---
   const handleExport = () => {
     const scriptApplicants = orderedApplicants.map(a => {
@@ -402,6 +421,21 @@ ${scriptApplicants.join(',\n')}
           <span className="slideshow-counter">{currentIndex + 1} / {orderedApplicants.length}</span>
         </div>
         <div className="slideshow-topbar-actions">
+          {isAdmin && (() => {
+            const g = genderOverrides[applicant.id] ?? applicant.gender ?? '';
+            return (
+              <div className="slide-gender-toggle">
+                <button
+                  className={`slide-gender-btn ${g === 'M' ? 'slide-gender-active slide-gender-active-m' : ''}`}
+                  onClick={() => handleGenderToggle('M')}
+                >M</button>
+                <button
+                  className={`slide-gender-btn ${g === 'F' ? 'slide-gender-active slide-gender-active-f' : ''}`}
+                  onClick={() => handleGenderToggle('F')}
+                >F</button>
+              </div>
+            );
+          })()}
           <button className="slide-btn-topbar" onClick={() => { setManageAddSearch(''); setManageAddOpen(false); setModal({ type: 'manage' }); }}>
             Manage
           </button>
@@ -504,13 +538,6 @@ ${scriptApplicants.join(',\n')}
                   ));
                 })()}
               </div>
-              {(applicant.essay_1 || applicant.essay_2 || applicant.essay_3) && (
-                <div className="slideshow-actions">
-                  {applicant.essay_1 && <button className="slide-action-btn" onClick={() => setModal({ type: 'essay', title: 'Essay 1', content: applicant.essay_1! })}>Essay 1</button>}
-                  {applicant.essay_2 && <button className="slide-action-btn" onClick={() => setModal({ type: 'essay', title: 'Essay 2', content: applicant.essay_2! })}>Essay 2</button>}
-                  {applicant.essay_3 && <button className="slide-action-btn" onClick={() => setModal({ type: 'essay', title: 'Essay 3', content: applicant.essay_3! })}>Essay 3</button>}
-                </div>
-              )}
               {isAdmin && (
                 <div className={`slideshow-scores ${!scoresRevealed ? 'scores-blurred' : ''}`} onClick={() => setScoresRevealed(prev => !prev)}>
                   {[{ label: 'Elo', value: applicant.elo }, { label: 'Social', value: applicant.social }, { label: 'Prof', value: applicant.prof }, { label: 'Weight', value: applicant.weight }].map(s => (

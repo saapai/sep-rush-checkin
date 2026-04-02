@@ -35,6 +35,7 @@ interface Applicant {
   essay_1?: string;
   essay_2?: string;
   essay_3?: string;
+  gender?: string;
   createdAt?: string;
 }
 
@@ -54,13 +55,9 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
   const [sortBy, setSortBy] = useState('name-asc');
   const [showSlideshow, setShowSlideshow] = useState(false);
   const [slideshowStartIndex, setSlideshowStartIndex] = useState(0);
-  const [showPresentModal, setShowPresentModal] = useState(false);
   const [presentNames, setPresentNames] = useState<string[]>([]);
-  const [presentNamesText, setPresentNamesText] = useState('');
   const [appliedNames, setAppliedNames] = useState<string[]>([]);
   const [showBulkRejectModal, setShowBulkRejectModal] = useState(false);
-  const [dayPresentAppliedOnly, setDayPresentAppliedOnly] = useState(true);
-  const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [bulkRejectText, setBulkRejectText] = useState('');
   const [bulkRejectRunning, setBulkRejectRunning] = useState(false);
   const [bulkRejectResult, setBulkRejectResult] = useState<{ rejected: string[], keepUnmatched: string[], alreadyRejected: number } | null>(null);
@@ -129,6 +126,7 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
           essay_1: (r.get('essay_1') as string) || '',
           essay_2: (r.get('essay_2') as string) || '',
           essay_3: (r.get('essay_3') as string) || '',
+          gender: (r.get('gender') as string) || '',
           createdAt: (r.get('created_at') as string) || r._rawJson?.createdTime || '',
         }))
         .filter(a => a.name.trim() !== '');
@@ -205,67 +203,10 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
 
   const statuses = [...new Set(applicants.map(a => a.status).filter(Boolean))];
 
-  const handleStartPresentation = () => {
-    const names = presentNamesText
-      .split('\n')
-      .map(n => n.trim())
-      .filter(n => n.length > 0);
-    if (names.length === 0) return;
-    launchPresentation(names);
-  };
-
-  const handleStartAll = () => {
-    // Sort by graduation year descending (freshmen/2029 first), then name within same year
-    const sorted = [...applicants].sort((a, b) => {
-      const yearA = a.year || 9999;
-      const yearB = b.year || 9999;
-      if (yearB !== yearA) return yearB - yearA;
-      return a.name.localeCompare(b.name);
-    });
-    const names = sorted.map(a => a.name);
-    launchPresentation(names);
-  };
-
-  const handleStartApplied = () => {
-    // Only applicants with status "Applied", sorted by class
-    const applied = applicants.filter(a =>
-      a.status?.toLowerCase() === 'applied'
-    ).sort((a, b) => {
-      const yearA = a.year || 9999;
-      const yearB = b.year || 9999;
-      if (yearB !== yearA) return yearB - yearA;
-      return a.name.localeCompare(b.name);
-    });
-    const names = applied.map(a => a.name);
-    launchPresentation(names, true);
-  };
-
-  const getApplicantsForDays = (days: number[]) => {
-    const seen = new Set<string>();
-    const result: typeof applicants = [];
-    for (const a of applicants) {
-      if (seen.has(a.id)) continue;
-      const statusOk = dayPresentAppliedOnly ? a.status?.toLowerCase() === 'applied' : a.status?.toLowerCase() !== 'rejected';
-      const dayOk = days.some(d => (a as Record<string, unknown>)[`day_${d}`] === true);
-      if (statusOk && dayOk) { seen.add(a.id); result.push(a); }
-    }
-    return result.sort((a, b) => {
-      const yearA = a.year || 9999;
-      const yearB = b.year || 9999;
-      if (yearB !== yearA) return yearB - yearA;
-      return a.name.localeCompare(b.name);
-    });
-  };
-
-  const handleStartSelectedDays = () => {
-    launchPresentation(getApplicantsForDays(selectedDays).map(a => a.name));
-  };
-
   const launchPresentation = (names: string[], appliedMode = false) => {
     setPresentNames(names);
     setSlideshowStartIndex(0);
     sessionStorage.setItem('present_session', JSON.stringify({ names, currentIndex: 0, appliedMode }));
-    setShowPresentModal(false);
     setShowSlideshow(true);
   };
 
@@ -284,7 +225,6 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
 
   const handleClearPresentation = () => {
     setPresentNames([]);
-    setPresentNamesText('');
     sessionStorage.removeItem('present_session');
   };
 
@@ -433,6 +373,17 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
               <span className="dash-stat-label">{s.label}</span>
             </div>
           ))}
+          {(() => {
+            const active = applicants.filter(a => a.status?.toLowerCase() !== 'rejected');
+            const m = active.filter(a => a.gender?.toUpperCase() === 'M').length;
+            const f = active.filter(a => a.gender?.toUpperCase() === 'F').length;
+            return (
+              <div className="dash-stat dash-stat-ratio">
+                <span className="dash-stat-value"><span className="dash-ratio-m">{m}</span><span className="dash-ratio-colon">:</span><span className="dash-ratio-f">{f}</span></span>
+                <span className="dash-stat-label">M : F</span>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -476,7 +427,7 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
                 Resume ({presentNames.length})
               </button>
             )}
-            <button className="dash-present" onClick={() => { setSelectedDays([]); setShowPresentModal(true); }}>
+            <button className="dash-present" onClick={() => launchPresentation(filtered.map(a => a.name))}>
               {presentNames.length > 0 ? 'New Presentation' : 'Present'}
             </button>
             <button className="dash-bulk-reject" onClick={() => { setBulkRejectResult(null); setBulkRejectText(''); setShowBulkRejectModal(true); }}>
@@ -532,120 +483,6 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
       </div>
 
       {filtered.length === 0 && <div className="dash-empty">No applicants found.</div>}
-
-      {showPresentModal && (
-        <div className="present-modal-overlay" onClick={() => setShowPresentModal(false)}>
-          <div className="present-modal" onClick={e => e.stopPropagation()}>
-            <h2 className="present-modal-title">Start Presentation</h2>
-            <p className="present-modal-desc">Paste names below, one per line. They'll be presented in this order.</p>
-
-            <textarea
-              className="present-modal-textarea"
-              placeholder={"Jane Doe\nJohn Smith\nAlex Chen"}
-              value={presentNamesText}
-              onChange={e => setPresentNamesText(e.target.value)}
-              autoFocus
-              rows={12}
-            />
-
-            <div className="present-modal-match-info">
-              {(() => {
-                const names = presentNamesText.split('\n').map(n => n.trim()).filter(n => n.length > 0);
-                const matched = names.filter(name => applicants.some(a => a.name.toLowerCase() === name.toLowerCase()));
-                const unmatched = names.filter(name => !applicants.some(a => a.name.toLowerCase() === name.toLowerCase()));
-                return (
-                  <>
-                    <span className="present-match-count">{matched.length} matched</span>
-                    {unmatched.length > 0 && (
-                      <div className="present-unmatched-list">
-                        <span className="present-unmatch-count">{unmatched.length} not found:</span>
-                        <ul>
-                          {unmatched.map((name, i) => <li key={i}>{name}</li>)}
-                        </ul>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-
-            <div className="present-modal-divider">
-              <span>or</span>
-            </div>
-
-            <div className="present-modal-day-header">
-              <span className="present-modal-day-label">By Day</span>
-              <label className="present-modal-switch">
-                <input
-                  type="checkbox"
-                  checked={dayPresentAppliedOnly}
-                  onChange={e => { setDayPresentAppliedOnly(e.target.checked); setSelectedDays([]); }}
-                />
-                <span className="switch-track"><span className="switch-thumb" /></span>
-                <span className="switch-label">Applied only</span>
-              </label>
-            </div>
-
-            <div className="present-modal-day-row">
-              {[1, 2, 3, 4, 5].map(day => {
-                const count = applicants.filter(a =>
-                  (dayPresentAppliedOnly ? a.status?.toLowerCase() === 'applied' : a.status?.toLowerCase() !== 'rejected') &&
-                  (a as Record<string, unknown>)[`day_${day}`] === true
-                ).length;
-                const isSelected = selectedDays.includes(day);
-                return (
-                  <button
-                    key={day}
-                    className={`present-modal-day-btn ${isSelected ? 'day-btn-selected' : ''}`}
-                    onClick={() => setSelectedDays(prev =>
-                      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
-                    )}
-                    disabled={count === 0}
-                  >
-                    Day {day} <span className="present-modal-day-count">({count})</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {(() => {
-              const customNames = presentNamesText.split('\n').map(n => n.trim()).filter(n => n.length > 0);
-              const customMatched = customNames.filter(name => applicants.some(a => a.name.toLowerCase() === name.toLowerCase()));
-              const dayTotal = selectedDays.length > 0 ? getApplicantsForDays(selectedDays).length : 0;
-              const total = selectedDays.length > 0 ? dayTotal : customMatched.length;
-              const canStart = selectedDays.length > 0 ? dayTotal > 0 : customNames.length > 0;
-              const handleStart = selectedDays.length > 0 ? handleStartSelectedDays : handleStartPresentation;
-              return (
-                <div className="present-modal-footer">
-                  <div className="present-modal-total-count">
-                    {total > 0
-                      ? <span>{total} applicant{total !== 1 ? 's' : ''} will be presented</span>
-                      : <span className="present-modal-total-empty">No applicants selected</span>
-                    }
-                  </div>
-                  <div className="present-modal-actions">
-                    {presentNames.length > 0 && (
-                      <button className="present-modal-clear" onClick={handleClearPresentation}>
-                        Clear Saved
-                      </button>
-                    )}
-                    <button className="present-modal-cancel" onClick={() => setShowPresentModal(false)}>
-                      Cancel
-                    </button>
-                    <button
-                      className="present-modal-start"
-                      disabled={!canStart}
-                      onClick={handleStart}
-                    >
-                      Start &rarr;
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-      )}
 
       {showSlideshow && presentNames.length > 0 && (
         <Slideshow

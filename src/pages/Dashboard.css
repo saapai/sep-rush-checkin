@@ -173,6 +173,23 @@
   font-weight: 600;
 }
 
+.dash-stat-ratio {
+  min-width: 80px;
+}
+
+.dash-ratio-m {
+  color: #3b82f6;
+}
+
+.dash-ratio-f {
+  color: #ec4899;
+}
+
+.dash-ratio-colon {
+  color: #ccc;
+  margin: 0 1px;
+}
+
 /* Controls */
 .dash-controls {
   max-width: 1400px;
