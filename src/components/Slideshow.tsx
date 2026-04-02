@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { getClassLabel, toggleTransfer } from '../utils/classYear';
 import './Slideshow.css';
 
 const SHOW_AI_SUMMARY = false;
@@ -99,6 +100,7 @@ const Slideshow: React.FC<SlideshowProps> = ({
   applicants, presentationNames, startIndex, onClose, onUpdateNames, isAdmin, navigate,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
+  const [, forceRender] = useState(0);
   const [scoresRevealed, setScoresRevealed] = useState(false);
   const [modal, setModal] = useState<ModalState>({ type: null });
   const [appData, setAppData] = useState<ApplicationData | null>(null);
@@ -143,10 +145,17 @@ const Slideshow: React.FC<SlideshowProps> = ({
         const Airtable = (await import('airtable')).default;
         const base = new Airtable({ apiKey: import.meta.env.VITE_AIRTABLE_API_KEY })
           .base(import.meta.env.VITE_AIRTABLE_BASE_ID);
-        const records = await base(APP_TABLE).select({
+        let records = await base(APP_TABLE).select({
           filterByFormula: `LOWER({applicant_name}) = "${applicant.name.toLowerCase().replace(/"/g, '\\"')}"`,
           maxRecords: 1,
         }).all();
+        // Fall back to email match
+        if (records.length === 0 && applicant.email) {
+          records = await base(APP_TABLE).select({
+            filterByFormula: `LOWER({email}) = "${applicant.email.toLowerCase().replace(/"/g, '\\"')}"`,
+            maxRecords: 1,
+          }).all();
+        }
         if (records.length > 0) {
           const r = records[0];
           setAppData({
@@ -425,7 +434,19 @@ ${scriptApplicants.join(',\n')}
               {(appData?.major || applicant.major) && <p className="slideshow-major">{appData?.major || applicant.major}</p>}
               {appData?.gpa && <p className="slideshow-gpa">GPA: {appData.gpa}</p>}
               <div className="slideshow-badges">
-                {applicant.year && <span className="slideshow-badge">{applicant.year}</span>}
+                {applicant.year && (
+                  <span
+                    className={`slideshow-badge ${applicant.year === 2027 ? 'slideshow-badge-clickable' : ''}`}
+                    onClick={() => {
+                      if (applicant.year === 2027) {
+                        toggleTransfer(applicant.id);
+                        forceRender(n => n + 1);
+                      }
+                    }}
+                  >
+                    {getClassLabel(applicant.year, applicant.id)}
+                  </span>
+                )}
                 {applicant.status && <span className={`slideshow-badge slideshow-badge-status ${statusClass}`}>{applicant.status}</span>}
                 <span className="slideshow-badge">{attendanceCount}/5 days</span>
               </div>
@@ -597,7 +618,7 @@ ${scriptApplicants.join(',\n')}
                       manageAddFiltered.slice(0, 8).map((a) => (
                         <div key={a.id} className="slide-add-dropdown-item" onClick={() => handleManageAdd(a.name)}>
                           {a.name}
-                          {a.year && <span className="slide-add-dropdown-year">{a.year}</span>}
+                          {a.year && <span className="slide-add-dropdown-year">{getClassLabel(a.year, a.id)}</span>}
                         </div>
                       ))
                     )}
@@ -613,7 +634,7 @@ ${scriptApplicants.join(',\n')}
                     <div key={idx} className={`slide-manage-item ${idx === currentIndex ? 'slide-manage-current' : ''}`}>
                       <span className="slide-manage-num">{idx + 1}</span>
                       <span className="slide-manage-name">{name}</span>
-                      {match?.year && <span className="slide-manage-year">{match.year}</span>}
+                      {match?.year && <span className="slide-manage-year">{getClassLabel(match.year, match.id)}</span>}
                       {!match && <span className="slide-manage-warn">not found</span>}
                       <button className="slide-manage-remove" onClick={() => handleManageRemove(idx)}>&times;</button>
                     </div>

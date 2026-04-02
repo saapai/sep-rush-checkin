@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Airtable from 'airtable';
+import { getClassLabel, toggleTransfer } from '../utils/classYear';
 import './ApplicantDetail.css';
 
 const normalizeForDedup = (text: string) =>
@@ -186,10 +187,16 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
     if (!applicant) return;
     const fetchAppData = async () => {
       try {
-        const records = await base("Application Responses").select({
+        let records = await base("Application Responses").select({
           filterByFormula: `LOWER({applicant_name}) = "${applicant.name.toLowerCase().replace(/"/g, '\\"')}"`,
           maxRecords: 1,
         }).all();
+        if (records.length === 0 && applicant.email) {
+          records = await base("Application Responses").select({
+            filterByFormula: `LOWER({email}) = "${applicant.email.toLowerCase().replace(/"/g, '\\"')}"`,
+            maxRecords: 1,
+          }).all();
+        }
         if (records.length > 0) {
           const r = records[0];
           setAppData({
@@ -346,7 +353,19 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicantId, navigate
             <h1 className="profile-name">{applicant.name}</h1>
             <p className="profile-email">{applicant.email || 'No email provided'}</p>
             <div className="profile-badges">
-              {applicant.year && <span className="profile-badge badge-year">Class of {applicant.year}</span>}
+              {applicant.year && (
+                <span
+                  className={`profile-badge badge-year ${applicant.year === 2027 ? 'badge-clickable' : ''}`}
+                  onClick={() => {
+                    if (applicant.year === 2027) {
+                      toggleTransfer(applicant.id);
+                      setApplicant(prev => prev ? { ...prev } : null); // force re-render
+                    }
+                  }}
+                >
+                  {getClassLabel(applicant.year, applicant.id)}
+                </span>
+              )}
               {applicant.major && <span className="profile-badge badge-major">{applicant.major}</span>}
               <span className={`profile-badge badge-status ${statusClass}`}>
                 {applicant.status || 'Unknown'}

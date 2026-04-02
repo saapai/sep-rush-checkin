@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Airtable from 'airtable';
 import Slideshow from '../components/Slideshow';
+import { getClassLabel } from '../utils/classYear';
 import './Dashboard.css';
 
 const base = new Airtable({
@@ -521,7 +522,7 @@ const Dashboard: React.FC<DashboardProps> = ({ navigate }) => {
             </div>
             <div className="card-info">
               <div className="card-name">{a.name}</div>
-              <div className="card-meta">{a.year || '—'} · {getAttendanceCount(a)}/5 days</div>
+              <div className="card-meta">{getClassLabel(a.year, a.id)} · {getAttendanceCount(a)}/5 days</div>
             </div>
           </div>
         ))}
