@@ -1452,6 +1452,10 @@ RULES:
 }
 
 export default async function handler(req, res) {
+  // All iMessage routing now goes through bruin-meals only.
+  // sep-ats texting disabled — messages are dispatched via canvas webhook.
+  return res.status(200).json({ ok: true, disabled: true });
+
   if (req.method !== 'POST') return res.status(200).json({ ok: true });
 
   const { content, from_number, number, is_outbound, message_handle } = req.body;

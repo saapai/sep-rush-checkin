@@ -5,18 +5,5 @@
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
-  "crons": [
-    {
-      "path": "/api/blast",
-      "schedule": "45 0 1-4 4 *"
-    },
-    {
-      "path": "/api/blast",
-      "schedule": "15 17 3 4 *"
-    },
-    {
-      "path": "/api/summarize-application?run_all=true",
-      "schedule": "*/5 * * * *"
-    }
-  ]
+  "crons": []
 }
